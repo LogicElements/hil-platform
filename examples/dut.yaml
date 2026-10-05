@@ -1,0 +1,10 @@
+# Example DUT wiring, usable with the built-in "sim" station.
+dut: example
+profile: standard-v1
+signals:
+  supply: PWR
+  door_sensor: X1.1
+  alarm_out: X2.1
+  link_ab_rs485: F1
+  sensor_in3: AO.1
+  console: {terminal: CON, baud: 115200}

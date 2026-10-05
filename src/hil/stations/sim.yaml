@@ -1,0 +1,28 @@
+# Built-in simulated station: every device is simulated, no hardware is needed.
+# It wires every power, switch, sense and fault_path terminal of the standard-v1 profile
+# (analog, serial, RS-485 and debug terminals are not wired).
+# X1.1 is looped back to X2.1 (di1.0 mirrors rel1.2), so stimulus and response can be tested.
+name: sim
+labels: [sim]
+profile: standard-v1
+devices:
+  rel1: {driver: sim_relay, channels: 32}
+  di1: {driver: sim_di, inputs: 8, mirror: {0: rel1.2}}
+terminals:
+  PWR: {kind: power, relays: [rel1.0, rel1.1]}
+  X1.1: {kind: switch, relay: rel1.2}
+  X1.2: {kind: switch, relay: rel1.3}
+  X1.3: {kind: switch, relay: rel1.4}
+  X1.4: {kind: switch, relay: rel1.5}
+  X2.1: {kind: sense, input: di1.0}
+  X2.2: {kind: sense, input: di1.1}
+  X2.3: {kind: sense, input: di1.2}
+  X2.4: {kind: sense, input: di1.3}
+  X2.5: {kind: sense, input: di1.4}
+  X2.6: {kind: sense, input: di1.5}
+  X2.7: {kind: sense, input: di1.6}
+  X2.8: {kind: sense, input: di1.7}
+  F1: {kind: fault_path, series: rel1.6, short: rel1.7}
+  F2: {kind: fault_path, series: rel1.8, short: rel1.9}
+  F3: {kind: fault_path, series: rel1.10, short: rel1.11}
+  F4: {kind: fault_path, series: rel1.12, short: rel1.13}

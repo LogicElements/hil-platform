@@ -1,0 +1,37 @@
+# Connector profile of the standard HIL station, version 1.
+# A station wires a subset of these terminals; a DUT file may refer only to them.
+# The number of terminals follows the selected hardware set and will grow
+# once the wiring between the DUT components is fixed (PR-01).
+profile: standard-v1
+terminals:
+  PWR: power
+  X1.1: switch
+  X1.2: switch
+  X1.3: switch
+  X1.4: switch
+  X2.1: sense
+  X2.2: sense
+  X2.3: sense
+  X2.4: sense
+  X2.5: sense
+  X2.6: sense
+  X2.7: sense
+  X2.8: sense
+  F1: fault_path
+  F2: fault_path
+  F3: fault_path
+  F4: fault_path
+  AO.0: analog_out
+  AO.1: analog_out
+  AO.2: analog_out
+  AO.3: analog_out
+  AO.4: analog_out
+  AI.1: analog_in
+  AI.2: analog_in
+  AI.3: analog_in
+  AI.4: analog_in
+  CON: serial
+  LOG: serial
+  COM1: rs485
+  MON1: rs485_monitor
+  SWD: debug
