@@ -8,7 +8,7 @@ Jak sestavu z [doporuceni.md](doporuceni.md) ovládat z testů a CI. Požadavky:
 
 | Zařízení | Přístup z Pythonu | Poznámka |
 |---|---|---|
-| Digilent Analog Discovery 3 | WaveForms SDK s podporou Pythonu | Windows, macOS, Linux. Na Raspberry Pi 5 netestováno |
+| Digilent Analog Discovery 3 | WaveForms SDK s podporou Pythonu | Windows, macOS, Linux včetně Raspberry Pi (ARM64, viz [návod Digilentu](https://digilent.com/reference/test-and-measurement/guides/getting-started-with-raspberry-pi)) |
 | Převodníky FT4232H a USB–RS-485 | pyserial, případně pyftdi | latenci čtení lze nastavit (pro pasivní záchyt nízkou) |
 | Relé moduly Waveshare (Modbus RTU) | pymodbus | adresy 1–255, rychlost až 256 000 baud |
 | RS-485 simulace master a slave, injektor chybných rámců | pymodbus a vlastní kód nad sériovým portem | |
