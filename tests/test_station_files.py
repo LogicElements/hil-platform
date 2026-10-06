@@ -18,6 +18,7 @@ def test_station_files_exist():
 def test_station_file_is_valid(path, capsys):
     station = Station.from_files(path)
     assert station.name == path.stem
-    assert "PWR" in station.terminals
+    if "bench" not in station.config.labels:  # bench stations wire only the device under bring-up
+        assert "PWR" in station.terminals
     assert main(["check", "--station", str(path)]) == 0
     assert "configuration OK" in capsys.readouterr().out
