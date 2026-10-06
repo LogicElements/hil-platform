@@ -12,7 +12,8 @@ devices:
   relay_bus:
     driver: modbus_rtu_bus
     port: /dev/serial/by-id/usb-FTDI_USB-RS485-REPLACE-if00-port0
-    baud: 9600
+    baud: 19200
+    parity: E
   rel1: {driver: waveshare_relay32, bus: relay_bus, address: 1}
   rel2: {driver: waveshare_relay32, bus: relay_bus, address: 2}
   di1: {driver: modbus_di, bus: relay_bus, address: 5, count: 8}

@@ -30,6 +30,7 @@ hil info --station sim
 - [Psaní a spouštění testů](doc/software/testy.md)
 - [Nasazení stanoviště](doc/software/nasazeni.md)
 - [HW testy stanoviště](doc/software/hw-testy.md)
+- [Oživení stanoviště](doc/software/oziveni.md)
 
 ## Licence
 

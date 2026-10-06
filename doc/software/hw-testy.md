@@ -30,7 +30,7 @@ Pokud mapa coilů nesouhlasí, upravte ve stanovišti `coil_base`, případně `
 
 ## Předpoklady neověřené na hardwaru
 
-Balíček byl vyvinut bez hardwaru. Ovladače jsou ověřené jen proti simulaci a falešným knihovnám (`ModbusSlave` na `sim_serial`, `FakeDwf`, `tests/drivers/fake_openocd.py`). Mapy registrů Waveshare a Quido, stav relé po zapnutí, přesnost `outage()` a latency timer ověřují testy v tabulce výše. Pro Analog Discovery 3 se navíc předpokládá:
+Balíček byl vyvinut bez hardwaru. Ovladače jsou ověřené jen proti simulaci a falešným knihovnám (`ModbusSlave` na `sim_serial`, `FakeDwf`, `tests/drivers/fake_openocd.py`). Mapy registrů Waveshare a Quido, stav relé po zapnutí, přesnost `outage()` a latency timer ověřují testy v tabulce výše. U modulu Quido RS 2/32 je ověřená mapa coilů (`coil_base: 0`) a vypnutá relé po zapnutí, mapa vstupů a zpoždění smyčky relé → vstup zatím ne (viz [oživení](oziveni.md#výsledky)). Pro Analog Discovery 3 se navíc předpokládá:
 
 - úroveň průběhu `funcDC` vychází z offsetu generátoru,
 - `FDwfAnalogOutConfigure` v režimu 3 změní běžící průběh bez skoku a režim 0 nechá na výstupu 0 V,

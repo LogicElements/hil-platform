@@ -1,0 +1,14 @@
+# Bench station: one Papouch Quido RS 2/32 on COM4 (bring-up, doc/software/oziveni.md).
+name: bench-quido
+labels: [bench]
+profile: standard-v1
+devices:
+  relay_bus: {driver: modbus_rtu_bus, port: COM4, baud: 19200, parity: E}
+  quido: {driver: quido_rs_2_32, bus: relay_bus, address: 49}
+terminals:
+  X1.1: {kind: switch, relay: quido.0}
+  X1.2: {kind: switch, relay: quido.1}
+  X1.3: {kind: switch, relay: quido.2}
+  X1.4: {kind: switch, relay: quido.3}
+  X2.1: {kind: sense, input: quido.in0}
+  X2.2: {kind: sense, input: quido.in1}

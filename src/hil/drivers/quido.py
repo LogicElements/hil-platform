@@ -1,8 +1,8 @@
 """Papouch Quido RS 2/32 (driver ``quido_rs_2_32``).
 
 The module must be switched from its default Spinel protocol to Modbus RTU. Relays are
-coils 0 to 31 and the two inputs discrete inputs 0 and 1 by default; the map is not
-verified on hardware yet (``coil_base``, ``input_base``).
+coils 0 to 31 and the two inputs discrete inputs 0 and 1 by default (``coil_base``,
+``input_base``). The coil map is verified on hardware, the input map is not yet.
 """
 
 from collections.abc import Collection
