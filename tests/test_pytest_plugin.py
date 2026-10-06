@@ -240,3 +240,75 @@ def test_artifact_dir_names_do_not_collide():
     long = "t.py::test[" + "x" * 300 + "]"
     assert len(artifact_dir_name(long)) <= 160
     assert artifact_dir_name(long) != artifact_dir_name(long + "y")
+
+
+CONSOLE_DUT = """
+dut: demo
+profile: standard-v1
+signals:
+  console: {terminal: CON, baud: 115200}
+"""
+
+
+def test_serial_log_artifact(pytester):
+    pytester.makefile(".yaml", dut=CONSOLE_DUT)
+    pytester.makepyfile(
+        """
+        def test_console(dut, hil):
+            with hil.devices["ser"].endpoint("dut_con") as side:
+                side.write(b"hello\\r\\n")
+                dut.console.expect("hello", timeout=1)
+        """
+    )
+    result = pytester.runpytest("--hil-station", "sim", "--hil-dut", "dut.yaml", "--hil-out", "out")
+    result.assert_outcomes(passed=1)
+    logs = list((pytester.path / "out").glob("*/serial-console.log"))
+    assert len(logs) == 1
+    assert logs[0].read_text(encoding="utf-8").splitlines()[1].endswith("hello")
+
+
+COMM_DUT = """
+dut: demo
+profile: standard-v1
+signals:
+  console: {terminal: CON, baud: 115200}
+  rs485: {terminal: COM1}
+  bus_monitor: {terminal: MON1}
+"""
+
+
+def test_comm_state_does_not_leak_between_tests(pytester):
+    pytester.makefile(".yaml", dut=COMM_DUT)
+    pytester.makepyfile(
+        """
+        import time
+
+        import pytest
+
+        from hil.comm import modbus
+        from hil.errors import WaitTimeout
+
+        def test_1_leaves_output(dut, hil):
+            dut.bus_monitor.start()
+            dut.rs485.send_raw(modbus.read_request(1, 3, 0, 1))
+            dut.bus_monitor.wait_for_frame(lambda f: f.decoded is not None, timeout=1)
+            with hil.devices["ser"].endpoint("dut_con") as side:
+                side.write(b"READY\\r\\n")
+                deadline = time.perf_counter() + 1
+                # received but not consumed by expect()
+                while b"READY" not in dut.console._buffer:
+                    assert time.perf_counter() < deadline
+                    time.sleep(0.005)
+
+        def test_2_starts_clean(dut):
+            with pytest.raises(WaitTimeout):
+                dut.console.expect("READY", 0.2)
+        """
+    )
+    result = pytester.runpytest("--hil-station", "sim", "--hil-dut", "dut.yaml", "--hil-out", "out")
+    result.assert_outcomes(passed=2)
+    module = "test_comm_state_does_not_leak_between_tests.py"
+    first = pytester.path / "out" / artifact_dir_name(f"{module}::test_1_leaves_output")
+    second = pytester.path / "out" / artifact_dir_name(f"{module}::test_2_starts_clean")
+    assert (first / "rs485-bus_monitor.jsonl").exists()
+    assert not (second / "rs485-bus_monitor.jsonl").exists()

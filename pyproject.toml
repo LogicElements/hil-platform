@@ -15,10 +15,11 @@ dependencies = [
     "pyyaml>=6.0",
     "filelock>=3.12",
     "pytest>=8.1",
+    "pyserial>=3.5",
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.6", "mypy>=1.12", "types-PyYAML"]
+dev = ["ruff>=0.6", "mypy>=1.12", "types-PyYAML", "types-pyserial"]
 
 [project.entry-points.pytest11]
 hil = "hil.pytest_plugin"
@@ -56,5 +57,5 @@ plugins = ["pydantic.mypy"]
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["hil.config.*", "hil.blocks.*", "hil.signals.*"]
+module = ["hil.config.*", "hil.blocks.*", "hil.signals.*", "hil.comm.*"]
 strict = true

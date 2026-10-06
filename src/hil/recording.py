@@ -46,25 +46,38 @@ class Recorder:
         return t - self._t0
 
     def write(self, filename: str, record: dict[str, Any]) -> None:
-        """Append one JSON record to ``filename`` in the test directory.
+        """Append one JSON record to ``filename`` in the test directory."""
+        self._append(filename, json.dumps(record, default=str), jsonl=True)
+
+    def write_line(self, filename: str, text: str) -> None:
+        """Append ``text`` with the time since the start of the test to a text file."""
+        t = self.relative(clock.now())
+        self._append(filename, f"{t:12.6f} {text}", jsonl=False)
+
+    def _append(self, filename: str, line: str, jsonl: bool) -> None:
+        """Append ``line``; the first line of a new file names the start of the test.
 
         The lock is taken with a timeout: a termination signal handler may call this
         while the interrupted main thread holds the lock, and waiting forever would
         hang the emergency switch-off. A record is dropped instead of deadlocking.
         """
         if not self._lock.acquire(timeout=_LOCK_TIMEOUT_S):
-            log.warning("recorder busy, dropping %s record %s", filename, record)
+            log.warning("recorder busy, dropping %s record %s", filename, line)
             return
         try:
             if self._dir is None:
-                log.debug("no test running, dropping %s record %s", filename, record)
+                log.debug("no test running, dropping %s record %s", filename, line)
                 return
             file = self._files.get(filename)
             if file is None:
                 file = (self._dir / filename).open("w", encoding="utf-8")
-                file.write(json.dumps({"start_utc": self._start_utc}) + "\n")
+                if jsonl:
+                    header = json.dumps({"start_utc": self._start_utc})
+                else:
+                    header = f"# start_utc {self._start_utc}"
+                file.write(header + "\n")
                 self._files[filename] = file
-            file.write(json.dumps(record, default=str) + "\n")
+            file.write(line + "\n")
             file.flush()
         finally:
             self._lock.release()

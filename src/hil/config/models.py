@@ -8,6 +8,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from hil.config.refs import Ref, ResourceRef
 
+__all__ = [
+    "PARAM_MODELS",
+    "DutConfig",
+    "Profile",
+    "SerialParams",
+    "StationConfig",
+    "StationTerminal",
+    "signal_params",
+    "terminal_refs",
+]
+
 TerminalKind = Literal[
     "power",
     "switch",
@@ -216,3 +227,48 @@ class DutConfig(_Strict):
                     f"with '_' and must not be one of {sorted(RESERVED_SIGNAL_NAMES)}"
                 )
         return signals
+
+
+class SerialParams(_Strict):
+    """Line parameters of a ``serial``, ``rs485`` or ``rs485_monitor`` DUT signal."""
+
+    baud: int = Field(default=115200, gt=0)
+    parity: Literal["N", "E", "O"] = "N"
+    stopbits: Literal[1, 2] = 1
+    bytesize: Literal[7, 8] = 8
+    # rs485: how long the Modbus master waits for a response
+    timeout_s: float = Field(default=1.0, gt=0)
+    # rs485: the transceiver echoes what the platform sends
+    echo: bool = False
+    # rs485_monitor: silence that ends a frame; default 3.5 characters, at least 1.5 ms
+    frame_gap_s: float | None = Field(default=None, gt=0)
+
+    def char_time_s(self) -> float:
+        """Duration of one character on the line (start, data, parity and stop bits)."""
+        bits = 1 + self.bytesize + (0 if self.parity == "N" else 1) + self.stopbits
+        return bits / self.baud
+
+    def gap_s(self) -> float:
+        if self.frame_gap_s is not None:
+            return self.frame_gap_s
+        return max(3.5 * self.char_time_s(), 0.0015)
+
+
+PARAM_MODELS: dict[str, type[BaseModel]] = {
+    "serial": SerialParams,
+    "rs485": SerialParams,
+    "rs485_monitor": SerialParams,
+}
+
+
+def signal_params(kind: str, params: dict[str, Any]) -> BaseModel | None:
+    """Validated parameters of a DUT signal on a terminal of ``kind``.
+
+    Raises ``ValueError`` (pydantic's ``ValidationError`` included) for invalid ones.
+    """
+    model = PARAM_MODELS.get(kind)
+    if model is None:
+        if params:
+            raise ValueError(f"terminal kind {kind!r} takes no parameters, got {sorted(params)}")
+        return None
+    return model.model_validate(params)

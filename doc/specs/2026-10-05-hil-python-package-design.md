@@ -163,7 +163,7 @@ class WaveshareRelay32(Device):
 |---|---|---|
 | `RelayChannel` | `set(bool)`, `get()`; zařízení navíc `set_many({kanál: bool})` jedním rámcem | Waveshare 32-ch, Quido RS 2/32, sim |
 | `DigitalInput` | `read() -> bool`; zařízení `read_all()` | `modbus_di`, Quido vstupy, sim |
-| `SerialLink` | `open(baud, parity, stopbits) -> serial.Serial` | `serial_ports`, sim |
+| `SerialLink` | `open(params, timeout) -> serial.Serial`, `params` je `SerialParams` (parametry linky z `dut.yaml`) | `serial_ports`, sim |
 | `AwgChannel` | `sine`, `square`, `dc`, `arbitrary`, `start()`, `stop()` | Analog Discovery 3, sim |
 | `ScopeChannel` | `acquire(rate, n) -> numpy.ndarray` | Analog Discovery 3, sim |
 | `DebugProbe` | `flash(image, target)`, `reset()`, `halt()` | OpenOCD, sim |
@@ -172,12 +172,12 @@ class WaveshareRelay32(Device):
 
 | Ovladač | Popis |
 |---|---|
-| `modbus_rtu_bus` | sdílený klient pymodbus, zámek, nastavitelná minimální mezera mezi rámci (Quido odpovídá nejdřív za 2 ms) |
+| `modbus_rtu_bus` | sdílený Modbus RTU master z `hil.comm`, zámek, nastavitelná minimální mezera mezi rámci (Quido odpovídá nejdřív za 2 ms) |
 | `waveshare_relay32` | 32 coilů. Adresa prvního coilu a funkční kódy jsou v konfiguraci s výchozí hodnotou, protože mapa registrů není ověřena na hardwaru |
 | `quido_rs_2_32` | 32 coilů a 2 vstupy, modul musí být přepnutý z protokolu Spinel do Modbus RTU. Mapa coilů neověřena, řeší se stejně jako u Waveshare |
 | `modbus_di` | obecné čtení vstupů: druh (discrete inputs nebo input registry), adresa prvního vstupu, počet, inverze |
 | `analog_discovery_3` | vazba `ctypes` na `libdwf.so` (Linux) nebo `dwf.dll` (Windows), knihovna se načte až v `open()`. Jeden handle pro 2 kanály AWG a 2 kanály scope |
-| `serial_ports` | pyserial. Na Linuxu nastaví u FTDI latency timer na 1 ms přes sysfs. Na Windows hodnotu jen ověří a při vyšší hodnotě varuje (nastavuje se ve Správci zařízení) |
+| `serial_ports` | pyserial. Na Linuxu nastaví u FTDI latency timer na 1 ms přes sysfs. Na Windows se hodnota nekontroluje, jen se upozorní v logu (nastavuje se ve Správci zařízení) |
 | `openocd` | spouští `openocd` / `openocd.exe` (PATH nebo cesta v konfiguraci) s timeoutem, výstup ukládá do záznamů |
 
 ### 4.4 Simulované ovladače
@@ -213,7 +213,7 @@ def test_alarm_on_door_open(dut):
 | `analog_out` | `AnalogOut` | `sine(freq, amp, offset)`, `square(...)`, `dc(v)`, `arbitrary(samples, rate)`, `follow(other)`, `disconnect()` |
 | `analog_in` | `AnalogIn` | `measure(duration_s=0.1) -> Measurement(dc, rms_ac)`, `capture(duration_s, rate) -> ndarray` |
 | `serial` | `SerialSignal` | `write()`, `read_until()`, `expect(regex, timeout)`, záznam na pozadí s razítky |
-| `rs485` | `Rs485Signal` | `modbus` (master), `slave(context)`, `send_raw(bytes)`, `inject(kind)`, `flood(duration_s)` |
+| `rs485` | `Rs485Signal` | `modbus` (master), `slave(address, store=None)`, `send_raw(bytes)`, `inject(kind, frame)`, `flood(duration_s)` |
 | `rs485_monitor` | `Rs485Monitor` | `start()`, `stop()`, `frames`, `wait_for_frame(predicate, timeout)` |
 | `debug` | `DebugSignal` | `flash(image)`, `flash_interrupted(after_s)`, `reset()` |
 
@@ -221,7 +221,7 @@ Vstupy `sense` se čtou pollingem ve vlákně. Nejkratší perioda je dána ovla
 
 Časy (`last_change`, návratová hodnota `wait_for`, razítka rámců) jsou v sekundách z jednotných hodin `hil.clock.now()`, což je `time.perf_counter()`. Hodiny jsou monotónní a mají vysoké rozlišení i na Windows, kde má `time.monotonic()` před Pythonem 3.13 rozlišení asi 16 ms.
 
-`inject(kind)` podporuje: špatný CRC, zkrácený rámec, prodloužený rámec, chybnou paritu. `frames` vrací `Frame(t, raw, decoded | error)`, kde dekodér Modbus RTU rozpozná požadavky a odpovědi standardních funkcí a rámce oddělí podle mezery 3,5 znaku.
+`inject(kind, frame)` podporuje: špatný CRC, zkrácený rámec, prodloužený rámec, chybnou paritu. `frames` vrací `Frame(t, raw, decoded | error)`, kde dekodér Modbus RTU rozpozná požadavky a odpovědi standardních funkcí a rámce oddělí podle mezery 3,5 znaku.
 
 ### 5.2 Bloky
 
@@ -289,8 +289,9 @@ src/hil/
     sim/
   resources.py
   blocks/                   # power, digital, faults, comm, debug, analog
-  signals/                  # signal classes, Dut
-  comm/                     # Modbus RTU codec and CRC, monitor, injector, flooder
+  signals/                  # signal classes, Dut; rs485.py: monitor, injection, flooding
+  comm/                     # Modbus RTU codec and CRC, master, slave;
+                            # faults.py, framing.py: helpers of injection and monitor
   recording.py
   station.py                # Station: devices -> blocks -> terminals, safe state
   pytest_plugin.py  cli.py  errors.py
@@ -303,15 +304,15 @@ tests/hw/                   # hardware checks, marker hw
 doc/software/               # user documentation
 ```
 
-**Závislosti:** `pydantic>=2`, `pyyaml`, `pyserial`, `pymodbus`, `numpy`, `filelock`, `pytest`. WaveForms SDK (s Adept runtime) a OpenOCD jsou systémové programy, potřebné jen pro příslušný ovladač.
+**Závislosti:** `pydantic>=2`, `pyyaml`, `pyserial`, `filelock`, `pytest`. WaveForms SDK (s Adept runtime) a OpenOCD jsou systémové programy, potřebné jen pro příslušný ovladač. Modbus RTU (master, slave, kodek) je vlastní implementace v `hil.comm`. numpy přibude s analogovou částí.
 
 ## 10. Testování balíčku
 
 - **Unit testy:** parser konfigurace a odkazů, validační pravidla (duplicitní prostředek, svorka mimo profil, nesoulad druhu, `allow_short`), Modbus codec a CRC proti známým rámcům, přidělování generátorů a multiplexer, pořadí otevírání zařízení.
 - **Integrační testy na stanovišti `sim`:** celé API přes sim ovladače, plugin přes `pytester` (skip nedostupného signálu, bezpečný stav po selhání testu, obsah `out/`).
-- **Ovladače relé a DI:** proti serveru pymodbus přes virtuální sériový pár. Ověří se odesílané rámce, ne skutečný modul.
+- **Ovladače relé a DI:** proti simulovanému slave `hil.comm.slave.ModbusSlave` na portu ovladače `sim_serial`. Ověří se odesílané rámce, ne skutečný modul.
 - **HW testy** (`tests/hw/`, marker `hw`, spouští se ručně na stanovišti nebo na vývojovém PC s připojeným zařízením): mapa coilů relé, výchozí stav relé po zapnutí, přesnost `outage()`, AD3 generování a měření, latency timer FTDI. Odpovídají bodům „Co ověřit při stavbě“ v [doporuceni.md](../vyber/doporuceni.md).
-- **CI balíčku:** GitHub Actions, matice `ubuntu-latest` a `windows-latest`, Python 3.12 a 3.13. Kroky: ruff, mypy (strict pro `hil.config`, `hil.blocks`, `hil.signals`), pytest bez HW testů.
+- **CI balíčku:** GitHub Actions, matice `ubuntu-latest` a `windows-latest`, Python 3.12 až 3.14. Kroky: ruff, mypy (strict pro `hil.config`, `hil.blocks`, `hil.signals`, `hil.comm`), pytest bez HW testů.
 
 ## 11. Nasazení
 

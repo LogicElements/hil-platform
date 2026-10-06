@@ -136,3 +136,42 @@ def test_non_utf8_file(tmp_path):
     path.write_bytes("name: stanoviště\n".encode("cp1250"))
     with pytest.raises(ConfigError, match="not valid UTF-8"):
         read_yaml(path)
+
+
+def test_dut_serial_params(tmp_path):
+    profile = load_profile("standard-v1")
+    text = DUT + "  console: {terminal: CON, baud: 9600, parity: E}\n"
+    dut = load_dut(write(tmp_path, "dut.yaml", text), profile)
+    assert dut.signals["console"].params() == {"baud": 9600, "parity": "E"}
+
+
+def test_dut_serial_param_typo(tmp_path):
+    profile = load_profile("standard-v1")
+    text = DUT + "  console: {terminal: CON, buad: 9600}\n"
+    with pytest.raises(ConfigError, match=r"signal 'console': buad: Extra inputs"):
+        load_dut(write(tmp_path, "dut.yaml", text), profile)
+
+
+def test_dut_invalid_parity(tmp_path):
+    profile = load_profile("standard-v1")
+    text = DUT + "  console: {terminal: CON, parity: X}\n"
+    with pytest.raises(ConfigError, match=r"signal 'console': parity"):
+        load_dut(write(tmp_path, "dut.yaml", text), profile)
+
+
+def test_params_on_signal_without_parameters(tmp_path):
+    profile = load_profile("standard-v1")
+    text = DUT.replace("supply: PWR", "supply: {terminal: PWR, baud: 9600}")
+    with pytest.raises(
+        ConfigError, match=r"signal 'supply': terminal kind 'power' takes no parameters"
+    ):
+        load_dut(write(tmp_path, "dut.yaml", text), profile)
+
+
+def test_dut_duplicate_port_terminal(tmp_path):
+    profile = load_profile("standard-v1")
+    text = DUT + "  console: {terminal: CON}\n  other: {terminal: CON}\n"
+    with pytest.raises(
+        ConfigError, match=r"signals 'console' and 'other' use the same serial terminal 'CON'"
+    ):
+        load_dut(write(tmp_path, "dut.yaml", text), profile)

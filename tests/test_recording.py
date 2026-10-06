@@ -49,3 +49,15 @@ def test_next_test_gets_own_directory(tmp_path):
     rec.stop_test()
     assert lines(tmp_path / "a" / "events.jsonl")[1]["action"] == "on"
     assert lines(tmp_path / "b" / "events.jsonl")[1]["action"] == "off"
+
+
+def test_text_lines(tmp_path):
+    rec = Recorder()
+    rec.start_test(tmp_path)
+    rec.write_line("serial-CON.log", "READY")
+    rec.stop_test()
+    lines = (tmp_path / "serial-CON.log").read_text(encoding="utf-8").splitlines()
+    assert lines[0].startswith("# start_utc ")
+    t, text = lines[1].split(maxsplit=1)
+    assert float(t) >= 0
+    assert text == "READY"

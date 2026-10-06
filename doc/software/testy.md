@@ -58,8 +58,17 @@ def test_analog_input(dut):
 | `switch` | `set(bool)`, `pulse(s)`, `state`, `last_change` |
 | `sense` | `read()`, `wait_for(stav, timeout) -> čas`, `with record() as r:` (změny v `r.changes`) |
 | `fault_path` | `open()`, `short_to_gnd()`, `restore()`, `state` |
+| `serial` | `write(data)`, `expect(regex, timeout) -> match`, `read_until(konec, timeout)`; log do `serial-<signál>.log` |
+| `rs485` | `modbus.read_holding_registers(adresa, start, počet)` a další funkce 1–6, 15, 16; `with slave(adresa, store):`; `send_raw(bajty)`; `inject(druh, rámec)` (`bad_crc`, `truncated`, `extended`, `bad_parity`); `flood(s)` |
+| `rs485_monitor` | `start()`, `stop()`, `frames`, `wait_for_frame(podmínka, timeout)`; záznam do `rs485-<signál>.jsonl` |
 
 Časy jsou v sekundách z `hil.clock.now()`.
+
+Porty komunikačních signálů se otevřou při vytvoření fixture `dut` s parametry z `dut.yaml`, takže konzole zachytí i výpis po zapnutí napájení. Konzole drží výstup od vzniku fixture. Po každém testu bezpečný stav zapíše nedokončený řádek do logu a zahodí nepřečtený výstup konzole, zastaví monitor (a smaže jeho rámce) a ukončí simulovaný slave. Master hlásí chybějící odpověď jako `DeviceTimeout` po `timeout_s`, výjimku zařízení jako `ModbusExceptionResponse` (atribut `code`). Chyby portu (např. odpojený převodník) hlásí signály i master jako `DeviceError`. Protože se porty otevírají už při vytvoření fixture `dut`, nefunkční port konzole nebo logu způsobí chybu (error) každého testu, který používá `dut`. Master získaný z `dut.rs485.modbus` před blokem `with dut.rs485.slave(...)` kontrolu konfliktu obejde (kontroluje se jen při získání mastera), proto si master přes blok slave nedržte a po jeho skončení si ho získejte znovu.
+
+Modbus RTU je vlastní implementace v `hil.comm`: `hil.comm.modbus` (CRC, sestavení a dekódování rámců), `ModbusMaster`, `ModbusSlave` s `ModbusDataStore`. Lze je použít i samostatně nad libovolným portem pyserialu, port ale musí mít nastavený timeout čtení (jinak ho master i slave odmítnou). S parametrem `echo` signálu `rs485` (nebo `ModbusSlave(..., echo=True)`) slave po každé odpovědi přečte a zahodí její ozvěnu; při startu zahodí bajty přijaté dříve. Simulovaný slave je bezpečný na sdílené sběrnici: přeslechnutý provoz přeskočí, odpovídá jen na požadavky pro svou adresu (neznámá funkce vrací výjimku 1, vnitřní chyba výjimku 4, broadcast provede bez odpovědi).
+
+`inject` a `flood` sestavují rámce z `hil.comm.faults`; `extend` přidává ve výchozím stavu bajt `0xFF` (rámec prodloužený o `0x00` by mohl mít stále platné CRC). Bajty, které netvoří platný rámec (např. zbloudilý bajt nebo zkrácený rámec), monitor zaznamená jako chybový rámec a v dávce pokračuje od místa, odkud se zbytek dávky rozdělí na platné rámce. Monitor rozpozná i rámce, jejichž CRC končí bajtem `0x00`: rámce dělí podle CRC a všechny rámce jedné dávky nesou časové razítko prvního kusu dávky.
 
 ## Přeskakování
 
@@ -67,7 +76,7 @@ Pokud test použije signál, jehož svorka na stanovišti není zapojená, test 
 
 ## Záznamy
 
-Každý test s fixture `hil` nebo `dut` má adresář `out/<id testu>/` (znaky nevhodné pro jména souborů se nahradí; je-li jméno upraveno nebo zkráceno, připojí se `-` a 8 znaků hashe id testu, aby se adresáře různých testů nepřekrývaly). Soubor `events.jsonl` obsahuje všechny změny signálů s časem od začátku testu. První řádek každého souboru nese čas začátku testu (UTC).
+Každý test s fixture `hil` nebo `dut` má adresář `out/<id testu>/` (znaky nevhodné pro jména souborů se nahradí; je-li jméno upraveno nebo zkráceno, připojí se `-` a 8 znaků hashe id testu, aby se adresáře různých testů nepřekrývaly). Soubor `events.jsonl` obsahuje všechny změny signálů s časem od začátku testu. První řádek každého souboru nese čas začátku testu (UTC). Komunikační signály přidávají `serial-<signál>.log` (řádek = čas od začátku testu a text) a `rs485-<signál>.jsonl` (čas, bajty v hex, dekódovaný rámec nebo chyba).
 
 ## Příkazová řádka
 

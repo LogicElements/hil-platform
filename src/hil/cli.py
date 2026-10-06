@@ -84,6 +84,7 @@ def _info(station: Station) -> int:
         "power": list(station.power.signals),
         "digital": [*station.digital.switches, *station.digital.senses],
         "faults": list(station.faults.paths),
+        "comm": [*station.comm.serials, *station.comm.rs485s, *station.comm.monitors],
     }
     print("blocks:")
     for block, names in blocks.items():

@@ -2,7 +2,11 @@
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
+
+import serial
+
+from hil.config.models import SerialParams
 
 
 class RelayBank(Protocol):
@@ -58,3 +62,36 @@ def set_relays(changes: Iterable[tuple[RelayChannel, bool]]) -> None:
         states[channel.index] = on
     for bank, states in per_bank.values():
         bank.set_many(states)
+
+
+class SerialProvider(Protocol):
+    """A device with named serial ports."""
+
+    name: str
+
+    def open_port(
+        self, channel: str, params: SerialParams, timeout: float | None
+    ) -> serial.Serial: ...
+
+
+@dataclass(frozen=True)
+class SerialLink:
+    provider: SerialProvider
+    channel: str
+
+    def open(self, params: SerialParams, timeout: float | None = None) -> serial.Serial:
+        """Open the port with the DUT's line parameters and the given read timeout."""
+        return self.provider.open_port(self.channel, params, timeout)
+
+    def __str__(self) -> str:
+        return f"{self.provider.name}.{self.channel}"
+
+
+def port_settings(params: SerialParams) -> dict[str, Any]:
+    """pyserial keyword arguments for the line parameters."""
+    return {
+        "baudrate": params.baud,
+        "bytesize": params.bytesize,
+        "parity": params.parity,
+        "stopbits": params.stopbits,
+    }

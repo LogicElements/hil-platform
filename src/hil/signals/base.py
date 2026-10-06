@@ -17,6 +17,9 @@ class Signal:
     def safe_state(self) -> None:
         """Bring the terminal into its safe state."""
 
+    def close(self) -> None:
+        """Release what the signal holds (ports, threads); called when the station closes."""
+
     def _event(self, action: str, **data: Any) -> None:
         self.recorder.event(self.name, action, **data)
 

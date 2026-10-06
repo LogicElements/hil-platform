@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from hil.config.models import DutConfig, Profile, StationConfig
+from hil.config.models import DutConfig, Profile, StationConfig, signal_params
 from hil.errors import ConfigError
 
 
@@ -119,10 +119,29 @@ def load_dut(path: str | Path, profile: Profile) -> DutConfig:
         raise ConfigError(
             f"{path}: DUT uses profile {dut.profile!r}, station uses {profile.profile!r}"
         )
+    port_users: dict[str, str] = {}
     for name, spec in dut.signals.items():
         if spec.terminal not in profile.terminals:
             raise ConfigError(
                 f"{path}: signal {name!r} refers to terminal {spec.terminal!r}, "
                 f"which is not in profile {profile.profile!r}"
             )
+        kind = profile.terminals[spec.terminal]
+        if kind in ("serial", "rs485", "rs485_monitor"):
+            if spec.terminal in port_users:
+                raise ConfigError(
+                    f"{path}: signals {port_users[spec.terminal]!r} and {name!r} "
+                    f"use the same {kind} terminal {spec.terminal!r}"
+                )
+            port_users[spec.terminal] = name
+        try:
+            signal_params(kind, spec.params())
+        except ValidationError as exc:
+            details = "; ".join(
+                f"{'.'.join(str(p) for p in e['loc']) or '<root>'}: {e['msg']}"
+                for e in exc.errors()
+            )
+            raise ConfigError(f"{path}: signal {name!r}: {details}") from exc
+        except ValueError as exc:
+            raise ConfigError(f"{path}: signal {name!r}: {exc}") from exc
     return dut

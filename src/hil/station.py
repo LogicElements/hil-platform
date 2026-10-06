@@ -11,16 +11,33 @@ from types import FrameType
 from typing import Any
 
 import hil.drivers  # noqa: F401  (registers the built-in drivers)
-from hil.blocks import DigitalBlock, FaultMatrix, PowerBlock
+from hil.blocks import CommBlock, DigitalBlock, FaultMatrix, PowerBlock
 from hil.config.loader import LoadedStation, load_station
-from hil.config.models import FaultPathTerminal, PowerTerminal, SenseTerminal, SwitchTerminal
+from hil.config.models import (
+    FaultPathTerminal,
+    PowerTerminal,
+    Rs485MonitorTerminal,
+    Rs485Terminal,
+    SenseTerminal,
+    SerialTerminal,
+    SwitchTerminal,
+)
 from hil.config.refs import ResourceRef
 from hil.drivers.base import Device
 from hil.drivers.registry import create_device, open_order
 from hil.errors import ConfigError, DeviceError, SignalUnavailable
 from hil.recording import Recorder
-from hil.resources import DigitalInput, RelayChannel
-from hil.signals import FaultPath, PowerSignal, SenseSignal, Signal, SwitchSignal
+from hil.resources import DigitalInput, RelayChannel, SerialLink
+from hil.signals import (
+    FaultPath,
+    PowerSignal,
+    Rs485Monitor,
+    Rs485Signal,
+    SenseSignal,
+    SerialSignal,
+    Signal,
+    SwitchSignal,
+)
 
 log = logging.getLogger("hil.station")
 
@@ -52,6 +69,9 @@ class Station:
         self.power = PowerBlock(self._of(PowerSignal), terminals)
         self.digital = DigitalBlock(self._of(SwitchSignal), self._of(SenseSignal), terminals)
         self.faults = FaultMatrix(self._of(FaultPath), terminals)
+        self.comm = CommBlock(
+            self._of(SerialSignal), self._of(Rs485Signal), self._of(Rs485Monitor), terminals
+        )
         self._opened: list[str] = []
         self._previous_handlers: dict[int, _Handler] = {}
         self._atexit_registered = False
@@ -99,6 +119,12 @@ class Station:
                     carries_power=fault.carries_power,
                     allow_short=fault.allow_short,
                 )
+            case SerialTerminal(port=port):
+                return SerialSignal(name, rec, self._resource(name, port, SerialLink))
+            case Rs485Terminal(port=port):
+                return Rs485Signal(name, rec, self._resource(name, port, SerialLink))
+            case Rs485MonitorTerminal(port=port):
+                return Rs485Monitor(name, rec, self._resource(name, port, SerialLink))
         kind = getattr(terminal, "kind", "?")
         raise ConfigError(
             f"{self.source}: terminal {name!r}: kind {kind!r} is not supported "
@@ -142,6 +168,12 @@ class Station:
             try:
                 self.safe_state()
             except DeviceError as exc:
+                errors.append(exc)
+        for signal in self.terminals.values():
+            try:
+                signal.close()
+            except Exception as exc:
+                log.error("closing terminal %s failed: %s", signal.name, exc)
                 errors.append(exc)
         for name in reversed(self._opened):
             try:

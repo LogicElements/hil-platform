@@ -7,7 +7,9 @@ from hil.config.models import (
     FaultPathTerminal,
     PowerTerminal,
     Profile,
+    SerialParams,
     StationConfig,
+    signal_params,
     terminal_refs,
 )
 from hil.config.refs import ResourceRef
@@ -119,3 +121,22 @@ def test_dut_shorthand_and_params():
 def test_dut_rejects_bad_signal_names(name):
     with pytest.raises(ValidationError, match="signal name"):
         DutConfig.model_validate({"dut": "d", "profile": "p", "signals": {name: "PWR"}})
+
+
+def test_serial_params_defaults_and_gap():
+    params = SerialParams()
+    assert (params.baud, params.parity, params.stopbits, params.bytesize) == (115200, "N", 1, 8)
+    assert SerialParams(baud=9600).gap_s() == pytest.approx(3.5 * 10 / 9600)
+    assert SerialParams(baud=921600, parity="E").gap_s() == 0.0015
+    assert SerialParams(frame_gap_s=0.01).gap_s() == 0.01
+    assert SerialParams(baud=19200, parity="E").char_time_s() == pytest.approx(11 / 19200)
+
+
+def test_signal_params():
+    assert signal_params("power", {}) is None
+    params = signal_params("rs485", {"baud": 19200, "parity": "E"})
+    assert params == SerialParams(baud=19200, parity="E")
+    with pytest.raises(ValueError, match="takes no parameters"):
+        signal_params("switch", {"baud": 1})
+    with pytest.raises(ValidationError):
+        signal_params("serial", {"parity": "X"})
