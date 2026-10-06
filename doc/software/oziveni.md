@@ -25,12 +25,12 @@ Zařízení si nastaví uživatel sám podle dokumentace výrobce, balíček je 
 | # | Zařízení | Co se ověří | Stav |
 |---|---|---|---|
 | 1 | Papouch Quido RS 2/32 | Modbus RTU, mapa coilů a vstupů, stav po zapnutí, zpoždění smyčky relé → vstup | hotovo kromě kroku 5 |
-| 2 | Waveshare Modbus RTU Relay 32-ch | mapa coilů, stav po zapnutí, sdílená sběrnice s Quido | čeká |
+| 2 | Waveshare Modbus RTU Relay 32-ch | mapa coilů, stav po zapnutí, sdílená sběrnice s Quido | odloženo, není k dispozici |
 | 3 | modul digitálních vstupů (`modbus_di`) | čtení vstupů, perioda čtení | čeká |
 | 4 | napájení přes zdroj HDR | `outage()`, odchylka pod 10 ms | čeká |
 | 5 | FT4232H | latency timer, monitor RS-485 na 921 600 Bd | čeká |
 | 6 | Analog Discovery 3 | funkce WaveForms SDK, smyčka generátor → scope | čeká |
-| 7 | ST-Link a OpenOCD | flashování a reset DUT | čeká |
+| 7 | ST-Link a OpenOCD | flashování a reset DUT | hotovo |
 | 8 | analogový multiplexer | oba generátory přes relé, měřicí multiplexer | čeká |
 | 9 | celé stanoviště na Linuxu | udev, služba `hil safe`, `hil check --probe` | čeká |
 
@@ -137,6 +137,27 @@ Test měří zpoždění od sepnutí relé po změnu vstupu (limit 50 ms) a prů
 - Úpravy konfigurace do `stations/bench-quido.yaml`, později do `stations/lab-a.yaml`.
 - V [HW testech](hw-testy.md) škrtnout ověřené předpoklady.
 
+## 7. ST-Link a OpenOCD
+
+Připojení: deska NUCLEO-H7A3ZI-Q (STM32H7A3, Cortex-M7, 2 MB flash) s vestavěným ST-Link V3 (firmware V3J16M7) přes USB vývojového PC. Typ desky a čipu ukáže `STM32_Programmer_CLI -l stlink` a `STM32_Programmer_CLI -c port=SWD mode=HOTPLUG` (STM32CubeCLT).
+
+OpenOCD není v `PATH`, použije se verze od ST přibalená k STM32CubeIDE 1.12 (OpenOCD 0.12.0 ST fork) i s jejími skripty (`st_scripts`). Stanoviště `stations/bench-stlink.yaml` proto uvádí plnou cestu v `command` a skripty v `search`. Pro tento cíl potřebuje dvě odchylky od výchozích voleb ovladače:
+
+- `interface: interface/stlink-dap.cfg`: s výchozím `interface/stlink.cfg` (HLA) skončí `target/stm32h7x.cfg` ze `st_scripts` zacyklením v `hla newtap`.
+- `-c "reset_config srst_only srst_nogate"` v `command`: bez hardwarového resetu (NRST) skončí `reset init` chybou „timed out while waiting for target halted“, takže selže `program`. Volba funguje i před konfigurací rozhraní, proto stačí úvodní argumenty.
+
+Ověření:
+
+```
+.venv/Scripts/hil check --station stations/bench-stlink.yaml --probe
+$env:HIL_HW_STATION = "stations/bench-stlink.yaml"
+$env:HIL_HW_TARGET = "target/stm32h7x.cfg"
+$env:HIL_HW_IMAGE = "examples/AmplifFilter-App.hex"
+.venv/Scripts/python -m pytest tests/hw -v -s -k test_flash_with_openocd
+```
+
+`HIL_HW_IMAGE` je libovolný image pro cílový čip (.hex nebo .elf). Image se do repozitáře nedávají (`.gitignore`), `examples/AmplifFilter-App.hex` je jen lokální soubor na vývojovém PC. Test přepíše firmware v čipu. Před prvním flashováním se vyplatí uložit obsah flash: `STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -r 0x08000000 0x200000 zaloha.bin`.
+
 ## Výsledky
 
 | Zařízení | Datum | Výsledek | Poznámka |
@@ -146,3 +167,4 @@ Test měří zpoždění od sepnutí relé po změnu vstupu (limit 50 ms) a prů
 | Quido RS 2/32, krok 3 | 6. 10. 2026 | prošlo | po vypnutí a zapnutí modulu jsou všechny coily vypnuté, žádná LED relé nesvítí. |
 | Quido RS 2/32, krok 4 | 6. 10. 2026 | prošlo | `test_relay_coil_map` prošel (3,6 s). Po sepnutí coilů 0, 1, 15 a 31 svítí LED výstupů 1, 2, 16 a 32, mapa odpovídá `coil_base: 0`. Zápis více coilů funkcí 0x0F funguje. |
 | Quido RS 2/32, krok 5 | 6. 10. 2026 | odloženo | smyčka relé → vstup zatím nezapojená; mapa vstupů, varianta napětí vstupů a zpoždění proti limitu 50 ms zůstávají neověřené. |
+| ST-Link a OpenOCD | 6. 10. 2026 | prošlo | NUCLEO-H7A3ZI-Q, OpenOCD od ST z CubeIDE 1.12. Reset přes `hil` 1,9 s, `test_flash_with_openocd` s lokálním `examples/AmplifFilter-App.hex` 5,0 s (program, verify, reset). Nutné `interface/stlink-dap.cfg` a `reset_config srst_only srst_nogate`, bez nich selže připojení nebo `reset init`. Neověřeno s OpenOCD z distribuce (Linux, upstream skripty). |

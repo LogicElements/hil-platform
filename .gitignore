@@ -7,3 +7,7 @@ out/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+
+# firmware images for flash tests stay local
+*.hex
+*.elf

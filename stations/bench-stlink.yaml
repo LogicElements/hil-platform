@@ -1,0 +1,17 @@
+# Bench station: ST-Link V3 on a NUCLEO-H7A3ZI-Q (bring-up, doc/software/oziveni.md).
+# OpenOCD is ST's build bundled with STM32CubeIDE 1.12; its stm32h7x.cfg needs the
+# stlink-dap interface (interface/stlink.cfg ends in a 'hla newtap' recursion).
+# Without the hardware reset (NRST) 'reset init' times out waiting for the core to halt,
+# so 'program' fails; reset_config works even when given before the interface.
+name: bench-stlink
+labels: [bench]
+profile: standard-v1
+devices:
+  stlink:
+    driver: openocd
+    command: ["C:/ST/STM32CubeIDE_1.12.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.openocd.win32_2.2.300.202301161003/tools/bin/openocd.exe",
+              "-c", "reset_config srst_only srst_nogate"]
+    search: ["C:/ST/STM32CubeIDE_1.12.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.debug.openocd_2.0.500.202302091318/resources/openocd/st_scripts"]
+    interface: interface/stlink-dap.cfg
+terminals:
+  SWD: {kind: debug, probe: stlink}
