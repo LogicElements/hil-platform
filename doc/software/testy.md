@@ -54,24 +54,32 @@ def test_analog_input(dut):
 
 | Druh | Metody |
 |---|---|
-| `power` | `on()`, `off()`, `outage(s) -> naměřená doba`, `cycle(n, on_s, off_s)`, `is_on` |
+| `power` | `on()`, `off()`, `outage(s) -> naměřená doba` (jen při zapnutém napájení, jinak `OperationNotAllowed`), `cycle(n, on_s, off_s)`, `is_on` |
 | `switch` | `set(bool)`, `pulse(s)`, `state`, `last_change` |
-| `sense` | `read()`, `wait_for(stav, timeout) -> čas`, `with record() as r:` (změny v `r.changes`) |
+| `sense` | `read()`, `wait_for(stav, timeout, poll_s=0.001) -> čas`, `with record() as r:` (změny v `r.changes`, průměrná perioda čtení v `r.mean_period_s`) |
 | `fault_path` | `open()`, `short_to_gnd()`, `restore()`, `state` |
 | `serial` | `write(data)`, `expect(regex, timeout) -> match`, `read_until(konec, timeout)`; log do `serial-<signál>.log` |
-| `rs485` | `modbus.read_holding_registers(adresa, start, počet)` a další funkce 1–6, 15, 16; `with slave(adresa, store):`; `send_raw(bajty)`; `inject(druh, rámec)` (`bad_crc`, `truncated`, `extended`, `bad_parity`); `flood(s)` |
-| `rs485_monitor` | `start()`, `stop()`, `frames`, `wait_for_frame(podmínka, timeout)`; záznam do `rs485-<signál>.jsonl` |
+| `rs485` | `modbus.read_holding_registers(adresa, start, počet)` a další funkce 1–6, 15, 16; `with slave(adresa, store):`; `send_raw(bajty)`; `inject(druh, rámec)` (`bad_crc`, `truncated`, `extended`, `bad_parity`); `flood(s, chunk=64, seed=None) -> počet bajtů` |
+| `rs485_monitor` | `start()`, `stop() -> rámce`, `frames`, `wait_for_frame(podmínka, timeout)`; záznam do `rs485-<signál>.jsonl` |
 | `debug` | `flash(obraz) -> ProbeResult`, `flash_interrupted(obraz, after_s)`, `reset()`, `halt()`; výstup sondy do `openocd.log` |
 | `analog_out` | `sine(freq, amp, offset=0)`, `square(freq, amp, offset=0, duty=0.5)`, `dc(v)`, `arbitrary(vzorky, rate)`, `follow(jiný_signál)`, `disconnect()`, `generator`, `waveform` |
 | `analog_in` | `measure(duration_s=0.1) -> Measurement(dc, rms_ac)`, `capture(duration_s, rate=100000) -> numpy.ndarray`; měření do `measurements.jsonl` |
 
 Časy jsou v sekundách z `hil.clock.now()`.
 
+Chyby a limity signálů:
+
+- `sense.record()` vyhodí `DeviceTimeout`, když první čtení vstupu trvá déle než 5 s. Zastavení záznamu čeká nejvýš 5 s.
+- `fault_path.short_to_gnd()` na svorce bez relé `short` vyhodí `SignalUnavailable`, na svorce s napájením bez `allow_short` `OperationNotAllowed`.
+- `rs485_monitor.wait_for_frame()` bez předchozího `start()` vyhodí `OperationNotAllowed`.
+- `inject("bad_parity", rámec)` přepne paritu portu, odešle rámec a paritu obnoví. Když paritu nejde přepnout, je to `DeviceError`. Když ji nejde obnovit, port se zavře.
+- Port konzole, jehož čtecí vlákno skončilo chybou, se po bezpečném stavu zavře a při dalším použití otevře znovu.
+
 Porty komunikačních signálů se otevřou při vytvoření fixture `dut` s parametry z `dut.yaml`, takže konzole zachytí i výpis po zapnutí napájení. Konzole drží výstup od vzniku fixture. Po každém testu bezpečný stav zapíše nedokončený řádek do logu a zahodí nepřečtený výstup konzole, zastaví monitor (a smaže jeho rámce) a ukončí simulovaný slave. Master hlásí chybějící odpověď jako `DeviceTimeout` po `timeout_s`, výjimku zařízení jako `ModbusExceptionResponse` (atribut `code`). Chyby portu (např. odpojený převodník) hlásí signály i master jako `DeviceError`. Protože se porty otevírají už při vytvoření fixture `dut`, nefunkční port konzole nebo logu způsobí chybu (error) každého testu, který používá `dut`. Master získaný z `dut.rs485.modbus` před blokem `with dut.rs485.slave(...)` kontrolu konfliktu obejde (kontroluje se jen při získání mastera), proto si master přes blok slave nedržte a po jeho skončení si ho získejte znovu.
 
 Modbus RTU je vlastní implementace v `hil.comm`: `hil.comm.modbus` (CRC, sestavení a dekódování rámců), `ModbusMaster`, `ModbusSlave` s `ModbusDataStore`. Lze je použít i samostatně nad libovolným portem pyserialu, port ale musí mít nastavený timeout čtení (jinak ho master i slave odmítnou). S parametrem `echo` signálu `rs485` (nebo `ModbusSlave(..., echo=True)`) slave po každé odpovědi přečte a zahodí její ozvěnu; při startu zahodí bajty přijaté dříve. Simulovaný slave je bezpečný na sdílené sběrnici: přeslechnutý provoz přeskočí, odpovídá jen na požadavky pro svou adresu (neznámá funkce vrací výjimku 1, vnitřní chyba výjimku 4, broadcast provede bez odpovědi).
 
-Signál `debug` předá operaci sondě s cílem z `dut.yaml` (bez `dut.yaml` přes `hil.debug.flash("SWD", obraz, target)`). Výsledek `ProbeResult` nese výstup, návratový kód, dobu a příznaky `interrupted` a `timed_out`. Selhání nástroje je `DeviceError`, překročení `timeout_s` je `DeviceTimeout`, chybějící obraz `FileNotFoundError`. Výstup sondy je v `openocd.log` i při chybě. `flash_interrupted(obraz, after_s)` ukončí sondu po `after_s` sekundách a simuluje přerušenou aktualizaci firmwaru. Pokud flashování skončí dřív, má výsledek `interrupted` rovno `False`.
+Signál `debug` předá operaci sondě s cílem z `dut.yaml` (bez `dut.yaml` přes `hil.debug.flash("SWD", obraz, target)`). Výsledek `ProbeResult` nese výstup, návratový kód, dobu a příznaky `interrupted` a `timed_out`. Selhání nástroje je `DeviceError`, překročení `timeout_s` je `DeviceTimeout`, chybějící obraz `FileNotFoundError`. Chybějící `target` (v `dut.yaml` ani v argumentu) je `OperationNotAllowed`, chybějící program OpenOCD je `DeviceNotFound`. Výstup sondy je v `openocd.log` i při chybě. `flash_interrupted(obraz, after_s)` ukončí sondu po `after_s` sekundách a simuluje přerušenou aktualizaci firmwaru. Pokud flashování skončí dřív, má výsledek `interrupted` rovno `False`.
 
 `inject` a `flood` sestavují rámce z `hil.comm.faults`; `extend` přidává ve výchozím stavu bajt `0xFF` (rámec prodloužený o `0x00` by mohl mít stále platné CRC). Bajty, které netvoří platný rámec (např. zbloudilý bajt nebo zkrácený rámec), monitor zaznamená jako chybový rámec a v dávce pokračuje od místa, odkud se zbytek dávky rozdělí na platné rámce. Monitor rozpozná i rámce, jejichž CRC končí bajtem `0x00`: rámce dělí podle CRC a všechny rámce jedné dávky nesou časové razítko prvního kusu dávky.
 
@@ -107,4 +115,4 @@ Ctrl+C a na Linuxu i `systemctl stop` (SIGTERM) a zavření terminálu (SIGHUP) 
 | `hil safe --station S` | bezpečný stav stanoviště; zařízení, které nejde otevřít, přeskočí a skončí kódem 3 |
 | `hil info --station S` | výpis zařízení, svorek a bloků |
 
-Návratové kódy: 0 v pořádku, 2 chyba konfigurace, 3 chyba zařízení nebo je stanoviště používáno jiným procesem.
+Všechny tři příkazy přijímají `--profiles <adresář>` (další adresář s profily, lze opakovat). Návratové kódy: 0 v pořádku, 2 chyba konfigurace, 3 chyba zařízení nebo je stanoviště používáno jiným procesem.

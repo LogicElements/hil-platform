@@ -25,7 +25,7 @@ hil info --station sim
 - [Specifikace HIL platformy](doc/hil-specifikace.md)
 - [Doporučení výběru platformy](doc/vyber/doporuceni.md)
 - [Nákupní seznam](doc/vyber/nakupni-seznam.md)
-- [Návrh Python balíčku hil](doc/specs/2026-10-05-hil-python-package-design.md)
+- [Architektura balíčku hil](doc/software/architektura.md)
 - [Konfigurace stanoviště a DUT](doc/software/konfigurace.md)
 - [Psaní a spouštění testů](doc/software/testy.md)
 - [Nasazení stanoviště](doc/software/nasazeni.md)

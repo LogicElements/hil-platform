@@ -1,6 +1,6 @@
 # Konfigurace stanoviště a DUT
 
-Balíček `hil` čte tři druhy souborů YAML. Návrh je ve [specifikaci](../specs/2026-10-05-hil-python-package-design.md).
+Balíček `hil` čte tři druhy souborů YAML. Architektura balíčku je popsaná v [architektura.md](architektura.md). Chyba konfigurace vždy uvádí soubor a cestu k chybnému poli.
 
 | Soubor | Kde leží | Obsah |
 |---|---|---|
@@ -69,13 +69,13 @@ Ovladače v této verzi:
 | `sim_ad3` | `inputs: {ch1: {dc, sine: {freq, amp}, noise}, ch2: ...}`, `awg_limit_v` (5), `scope_limit_v` (25), `seed` (0) | `awg1`, `awg2`, `ch1`, `ch2` |
 | `analog_discovery_3` | `serial` (bez něj jediné připojené AD3), `library` (cesta ke knihovně WaveForms SDK), `scope_warmup_s` (2) | `awg1`, `awg2`, `ch1`, `ch2` |
 
-Moduly relé a vstupů sdílejí sběrnici `modbus_rtu_bus`, operace na ní jdou postupně. Operace, která na sběrnici čeká déle než `lock_timeout_s`, skončí chybou `DeviceTimeout`. Modul, který při otevření neodpovídá, způsobí `DeviceNotFound` s adresou a jménem sběrnice. Moduly relé drží povelový stav: `set_many` zapíše jedním rámcem (funkce 15) rozsah od nejnižšího po nejvyšší měněné relé. Coily přečtené při otevření jsou v `initial_states` (stav po zapnutí modulu).
+Moduly relé a vstupů sdílejí sběrnici `modbus_rtu_bus`, operace na ní jdou postupně. Operace, která na sběrnici čeká déle než `lock_timeout_s`, skončí chybou `DeviceTimeout`. Modul, který při otevření neodpovídá, způsobí `DeviceNotFound` s adresou a jménem sběrnice. Odpověď na zápis (funkce 5, 6, 15, 16) se porovná s požadavkem, nesouhlas je chyba. Moduly relé drží povelový stav: `set_many` zapíše jedním rámcem (funkce 15) rozsah od nejnižšího po nejvyšší měněné relé. Coily přečtené při otevření jsou v `initial_states` (stav po zapnutí modulu).
 
 Mapy registrů Waveshare a Quido nejsou ověřené na hardwaru. Pokud nesouhlasí, upravují se volbami `coil_base`, `write` a `input_base`, ne kódem (viz [HW testy](hw-testy.md)). Quido je třeba přepnout z protokolu Spinel na Modbus RTU.
 
 `modbus_di` čte všechny vstupy jedním požadavkem: z discrete inputs (funkce 2), nebo z input registrů (funkce 4) po 16 vstupech na registr od nejnižšího bitu.
 
-`analog_discovery_3` načte knihovnu WaveForms SDK (`libdwf.so`, na Windows `dwf.dll`) až při otevření, stanoviště bez AD3 ji nepotřebuje. AD3 otevřené v programu WaveForms nejde současně použít. Generátory mají rozsah ±5 V, napětí mimo rozsah je chyba dřív, než se cokoli přepne. Scope má rozsah ±25 V. Po otevření ovladač čeká `scope_warmup_s`, než se ustálí offset scope. Skutečnou vzorkovací frekvenci scope si ovladač přečte zpět a varuje, když ji zařízení zaokrouhlí o více než 0,1 %. Záznam do velikosti bufferu scope se pořídí najednou, delší v režimu record, který běží, dokud se nenasbírá požadovaný počet vzorků. Po zavření zařízení generátory neběží (výstupy se vypnou). `sim_ad3` drží nastavení generátorů v paměti a scope čte vstupy z konfigurace, DUT mezi generátorem a scope se nesimuluje.
+`analog_discovery_3` načte knihovnu WaveForms SDK (`libdwf.so`, na Windows `dwf.dll`) až při otevření, stanoviště bez AD3 ji nepotřebuje. AD3 otevřené v programu WaveForms nejde současně použít, otevření stanoviště skončí chybou `DeviceNotFound`. Generátory mají rozsah ±5 V, napětí mimo rozsah je chyba dřív, než se cokoli přepne. Scope má rozsah ±25 V. Po otevření ovladač čeká `scope_warmup_s`, než se ustálí offset scope. Skutečnou vzorkovací frekvenci scope si ovladač přečte zpět a varuje, když ji zařízení zaokrouhlí o více než 0,1 %. Záznam do velikosti bufferu scope se pořídí najednou, delší v režimu record, který běží, dokud se nenasbírá požadovaný počet vzorků. Ztracené vzorky nebo neúplný záznam jsou `DeviceError`, záznam, který nedoběhne do `n / rate + 2 s`, je `DeviceTimeout`. Po zavření zařízení generátory neběží (výstupy se vypnou). `sim_ad3` drží nastavení generátorů v paměti a scope čte vstupy z konfigurace, DUT mezi generátorem a scope se nesimuluje.
 
 `mirror` propojí vstup se simulovaným relé, takže na stanovišti `sim` vede `X1.1` na `X2.1`.
 

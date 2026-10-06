@@ -27,3 +27,17 @@ Volba `-s` ukáže naměřené hodnoty (zpoždění, perioda čtení, délka vý
 `test_analog_multiplexer_loopback` nastaví na svorky postupně 1,5 V a 2,5 V. Při dvou párech dostane druhá svorka generátor 1, který je trvale zapojený i na `AO.0` (bez relé), takže napětí je během testu i na `AO.0`. Proto musí být DUT odpojený, aspoň od `AO.0` a od svorek z `HIL_HW_ANALOG_LOOP`.
 
 Pokud mapa coilů nesouhlasí, upravte ve stanovišti `coil_base`, případně `write: single` (zápis po jednom relé funkcí 5), a test spusťte znovu. U modulu Quido se stejně upravuje `input_base`.
+
+## Předpoklady neověřené na hardwaru
+
+Balíček byl vyvinut bez hardwaru. Ovladače jsou ověřené jen proti simulaci a falešným knihovnám (`ModbusSlave` na `sim_serial`, `FakeDwf`, `tests/drivers/fake_openocd.py`). Mapy registrů Waveshare a Quido, stav relé po zapnutí, přesnost `outage()` a latency timer ověřují testy v tabulce výše. Pro Analog Discovery 3 se navíc předpokládá:
+
+- úroveň průběhu `funcDC` vychází z offsetu generátoru,
+- `FDwfAnalogOutConfigure` v režimu 3 změní běžící průběh bez skoku a režim 0 nechá na výstupu 0 V,
+- `FDwfAnalogInFrequencyGet` vrací zaokrouhlenou frekvenci už před Configure,
+- režim record s délkou 0 běží bez omezení délky,
+- offset scope se ustálí do 2 s po otevření (`scope_warmup_s`),
+- tolerance měření 0,1 V u DC a 5 % u RMS stačí,
+- přepínání výstupního a měřicího multiplexeru funguje se skutečnými relé.
+
+Většinu z toho ověří `test_ad3_generator_loopback` a `test_analog_multiplexer_loopback`. Pokud předpoklad neplatí, opravuje se ovladač `analog_discovery_3` (`drivers/dwf.py`).
