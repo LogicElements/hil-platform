@@ -1,5 +1,6 @@
 """Checks from "Co ověřit při stavbě" (doc/vyber/doporuceni.md) on a real station."""
 
+import math
 import os
 import sys
 import time
@@ -9,8 +10,10 @@ import pytest
 
 from hil.comm import modbus
 from hil.config.models import SerialParams
+from hil.drivers.analog_discovery import AnalogDiscovery3
 from hil.drivers.modbus_relay import ModbusRelayModule
 from hil.drivers.serial_ports import SYSFS_USB_SERIAL, SerialPorts
+from hil.signals import measurement_of
 
 pytestmark = pytest.mark.hw
 
@@ -138,3 +141,68 @@ def test_flash_with_openocd(hw_station):
     swd = hw_station.debug["SWD"]
     assert swd.flash(image, target).ok
     assert swd.reset(target).ok
+
+
+def analog_discovery(station):
+    devices = [d for d in station.devices.values() if isinstance(d, AnalogDiscovery3)]
+    if not devices:
+        pytest.skip("the station has no Analog Discovery 3")
+    return devices[0]
+
+
+@pytest.mark.parametrize(("generator", "scope"), [("awg1", "ch1"), ("awg2", "ch2")])
+def test_ad3_generator_loopback(hw_station, generator, scope):
+    """W1 wired to 1+, W2 to 2+, 1- and 2- to ground; needs HIL_HW_AD3_LOOP=1."""
+    require_flag("HIL_HW_AD3_LOOP")
+    ad3 = analog_discovery(hw_station)
+    awg, channel = ad3.resource(generator), ad3.resource(scope)
+    try:
+        awg.dc(2.0)
+        awg.start()
+        time.sleep(0.1)
+        m = measurement_of(channel.acquire(100_000, 10_000))
+        print(f"{generator} DC 2 V -> {scope}: dc {m.dc:.4f} V, rms_ac {m.rms_ac:.4f} V")
+        assert m.dc == pytest.approx(2.0, abs=0.1)
+        awg.sine(1000, 1.0)
+        time.sleep(0.1)
+        m = measurement_of(channel.acquire(100_000, 10_000))
+        print(f"{generator} sine 1 kHz 1 V -> {scope}: dc {m.dc:.4f} V, rms_ac {m.rms_ac:.4f} V")
+        assert m.dc == pytest.approx(0.0, abs=0.1)
+        assert m.rms_ac == pytest.approx(1 / math.sqrt(2), rel=0.05)
+        long = channel.acquire(100_000, 200_000)  # more than the buffer: record mode
+        assert len(long) == 200_000
+        assert measurement_of(long).rms_ac == pytest.approx(1 / math.sqrt(2), rel=0.05)
+    finally:
+        awg.stop()
+
+
+def analog_pairs():
+    """HIL_HW_ANALOG_LOOP=AO.1:AI.1,AO.2:AI.3 - outputs wired to inputs by jumpers."""
+    pairs = [tuple(pair.split(":")) for pair in env("HIL_HW_ANALOG_LOOP").split(",")]
+    if len(pairs) > 2:
+        pytest.fail("HIL_HW_ANALOG_LOOP takes at most 2 pairs (the station has 2 generators)")
+    return pairs
+
+
+def test_analog_multiplexer_loopback(hw_station):
+    """Both generators through the output multiplexer, then the "no signal" state."""
+    pairs = analog_pairs()
+    analog = hw_station.analog
+    # the second terminal gets generator 1, which is also wired to AO.0 without a relay:
+    # distinct but non-negative levels, harmless to a DUT input left on AO.0
+    levels = [1.5, 2.5]
+    try:
+        for (out, _), level in zip(pairs, levels, strict=False):
+            analog.dc(out, level)
+        for (out, inp), level in zip(pairs, levels, strict=False):
+            m = analog.measure(inp)
+            generator = analog.output(out).generator
+            print(f"{out} ({generator}) {level} V -> {inp}: {m.dc:.4f} V")
+            assert m.dc == pytest.approx(level, abs=0.1)
+        analog.disconnect_all()
+        for out, inp in pairs:
+            m = analog.measure(inp)
+            print(f"{out} disconnected -> {inp}: {m.dc:.4f} V")
+            assert abs(m.dc) < 0.2
+    finally:
+        analog.disconnect_all()

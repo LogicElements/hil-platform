@@ -10,6 +10,7 @@ from hil.config.refs import Ref, ResourceRef
 
 __all__ = [
     "PARAM_MODELS",
+    "AnalogConfig",
     "DebugParams",
     "DutConfig",
     "Profile",
@@ -116,6 +117,16 @@ class DebugTerminal(_Strict):
     probe: str
 
 
+class AnalogConfig(_Strict):
+    """Generators switched by the output multiplexers.
+
+    ``generators[0]`` is selected by a released ``select`` relay (NC contact),
+    ``generators[1]`` by an operated one (NO contact).
+    """
+
+    generators: list[Ref] = Field(min_length=2, max_length=2)
+
+
 StationTerminal = Annotated[
     PowerTerminal
     | SwitchTerminal
@@ -159,6 +170,7 @@ class StationConfig(_Strict):
     labels: list[str] = Field(default_factory=list)
     profile: str
     devices: dict[str, DeviceConfig]
+    analog: AnalogConfig | None = None
     terminals: dict[str, StationTerminal]
 
     @field_validator("devices")
@@ -175,6 +187,8 @@ class StationConfig(_Strict):
     @model_validator(mode="after")
     def _check_references(self) -> "StationConfig":
         used: dict[ResourceRef, str] = {}
+        # scope channel -> (terminal, has a connect relay); a scope may be shared
+        scopes: dict[ResourceRef, list[tuple[str, bool]]] = {}
         for name, terminal in self.terminals.items():
             refs = terminal_refs(terminal)
             devices = [ref.device for ref in refs]
@@ -183,11 +197,49 @@ class StationConfig(_Strict):
             for device in devices:
                 if device not in self.devices:
                     raise ValueError(f"terminal {name!r} refers to unknown device {device!r}")
+            uses_mux = isinstance(terminal, AnalogOutTerminal) and terminal.select is not None
+            if uses_mux and self.analog is None:
+                raise ValueError(
+                    f"terminal {name!r} uses the output multiplexer; list its generators "
+                    "in 'analog: {generators: [<generator 1>, <generator 2>]}'"
+                )
+            if isinstance(terminal, AnalogInTerminal):
+                scopes.setdefault(terminal.scope, []).append((name, terminal.connect is not None))
+                refs = [ref for ref in refs if ref != terminal.scope]
             for ref in refs:
                 if ref in used:
                     raise ValueError(f"resource {ref} is used by both {used[ref]!r} and {name!r}")
                 used[ref] = name
+        for scope, users in scopes.items():
+            if scope in used:
+                raise ValueError(
+                    f"resource {scope} is used by both {used[scope]!r} and {users[0][0]!r}"
+                )
+            if len(users) > 1 and not all(has_connect for _, has_connect in users):
+                names = ", ".join(repr(name) for name, _ in users)
+                raise ValueError(
+                    f"scope channel {scope} is shared by {names}; every terminal sharing "
+                    "a scope channel needs a 'connect' relay"
+                )
+        if self.analog is not None:
+            self._check_generators(self.analog.generators, used)
         return self
+
+    def _check_generators(
+        self, generators: list[ResourceRef], used: dict[ResourceRef, str]
+    ) -> None:
+        for ref in generators:
+            if ref.device not in self.devices:
+                raise ValueError(f"analog generator {ref} refers to unknown device {ref.device!r}")
+        if generators[0] == generators[1]:
+            raise ValueError(f"analog generators must differ, got {generators[0]} twice")
+        for ref in generators:
+            owner = used.get(ref)
+            if owner is None:
+                continue
+            terminal = self.terminals[owner]
+            if not (isinstance(terminal, AnalogOutTerminal) and terminal.direct == ref):
+                raise ValueError(f"analog generator {ref} is also used by terminal {owner!r}")
 
 
 class SignalSpec(BaseModel):

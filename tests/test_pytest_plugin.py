@@ -22,11 +22,11 @@ def _clean_env(monkeypatch):
     monkeypatch.delenv("HIL_DUT", raising=False)
 
 
-def run(pytester, test_source, *extra):
+def run(pytester, test_source, *extra, station="sim"):
     pytester.makefile(".yaml", dut=DUT)
     pytester.makepyfile(test_source)
     return pytester.runpytest(
-        "--hil-station", "sim", "--hil-dut", "dut.yaml", "--hil-out", "out", *extra
+        "--hil-station", str(station), "--hil-dut", "dut.yaml", "--hil-out", "out", *extra
     )
 
 
@@ -52,7 +52,7 @@ def test_loopback_passes_and_records_events(pytester):
     assert "safe_state" in actions
 
 
-def test_unwired_signal_skips(pytester):
+def test_unwired_signal_skips(pytester, no_analog_station):
     result = run(
         pytester,
         """
@@ -60,12 +60,13 @@ def test_unwired_signal_skips(pytester):
             dut.sensor_in3
         """,
         "-rs",
+        station=no_analog_station,
     )
     result.assert_outcomes(skipped=1)
     result.stdout.fnmatch_lines(["*signal 'sensor_in3'*'AO.1' is not wired*"])
 
 
-def test_unwired_signal_in_fixture_skips(pytester):
+def test_unwired_signal_in_fixture_skips(pytester, no_analog_station):
     result = run(
         pytester,
         """
@@ -78,11 +79,12 @@ def test_unwired_signal_in_fixture_skips(pytester):
         def test_analog(analog):
             assert False
         """,
+        station=no_analog_station,
     )
     result.assert_outcomes(skipped=1)
 
 
-def test_marker_skips_before_test_body(pytester):
+def test_marker_skips_before_test_body(pytester, no_analog_station):
     result = run(
         pytester,
         """
@@ -92,6 +94,7 @@ def test_marker_skips_before_test_body(pytester):
         def test_analog(dut):
             assert False, "must not run"
         """,
+        station=no_analog_station,
     )
     result.assert_outcomes(skipped=1)
 
@@ -197,7 +200,7 @@ def test_hil_fixture_without_dut(pytester):
     pytester.runpytest("--hil-station", "sim").assert_outcomes(passed=1)
 
 
-def test_unwired_signal_in_module_scoped_fixture_skips(pytester):
+def test_unwired_signal_in_module_scoped_fixture_skips(pytester, no_analog_station):
     result = run(
         pytester,
         """
@@ -214,6 +217,7 @@ def test_unwired_signal_in_module_scoped_fixture_skips(pytester):
         def test_b(analog):
             pass
         """,
+        station=no_analog_station,
     )
     result.assert_outcomes(skipped=2)
 
@@ -339,3 +343,18 @@ def test_sigterm_ends_session_with_safe_state(pytester):
     events = next((pytester.path / "out").glob("*test_1_terminated*/events.jsonl"))
     actions = [json.loads(line).get("action") for line in events.read_text().splitlines()]
     assert "safe_state" in actions
+
+
+def test_measurement_is_recorded(pytester):
+    result = run(
+        pytester,
+        """
+        def test_measure(hil):
+            hil.analog.measure("AI.1", 0.02)
+        """,
+    )
+    result.assert_outcomes(passed=1)
+    nodeid = "test_measurement_is_recorded.py::test_measure"
+    out = pytester.path / "out" / artifact_dir_name(nodeid)
+    lines = (out / "measurements.jsonl").read_text().splitlines()
+    assert json.loads(lines[1])["terminal"] == "AI.1"

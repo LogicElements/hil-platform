@@ -26,5 +26,14 @@ def test_rs485_link_cut_and_restore(dut):
 
 @pytest.mark.hil_requires("sensor_in3")
 def test_analog_input(dut):
-    # Skipped on stations without terminal AO.1 (e.g. "sim").
+    # Skipped on stations without terminal AO.1.
     dut.sensor_in3.sine(freq=1000, amp=1.0)
+
+
+@pytest.mark.hil_requires("sensor_out1")
+def test_analog_output_measurement(dut):
+    dut.supply.on()
+    m = dut.sensor_out1.measure(duration_s=0.1)
+    # On the "sim" station AI.1 reads the fixed input of sim_ad3 (1 V DC, 50 Hz sine 0.5 V).
+    assert -24.0 <= m.dc <= 24.0
+    assert m.rms_ac >= 0.0

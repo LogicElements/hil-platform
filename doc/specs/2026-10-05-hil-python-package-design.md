@@ -89,6 +89,8 @@ devices:
   ad3:    {driver: analog_discovery_3, serial: "210415B..."}
   ft:     {driver: serial_ports, ports: {A: {serial: "FT4ABC", interface: 0}, C: COM7, D: /dev/ttyUSB3}}
   stlink: {driver: openocd, interface: interface/stlink.cfg}
+analog:
+  generators: [ad3.awg1, ad3.awg2]   # generator 1 (select NC), generator 2 (select NO)
 terminals:
   PWR:  {kind: power,      relays: [rel1.0, rel1.1]}
   X1.1: {kind: switch,     relay: rel1.2}
@@ -97,6 +99,7 @@ terminals:
   AO.0: {kind: analog_out, direct: ad3.awg1}
   AO.1: {kind: analog_out, select: rel2.0, connect: rel2.1}
   AI.1: {kind: analog_in,  scope: ad3.ch1, connect: rel1.20}
+  AI.2: {kind: analog_in,  scope: ad3.ch1, connect: rel1.21}
   CON:  {kind: serial,     port: ft.A}
   COM1: {kind: rs485,      port: ft.C}
   MON1: {kind: rs485_monitor, port: ft.D}
@@ -109,6 +112,8 @@ Pravidla:
 - Sériový port lze zadat cestou (`/dev/serial/by-id/...`, `COM7`), pyserial URL (`loop://`) nebo sériovým číslem FTDI a číslem rozhraní (`{serial, interface}`). Poslední způsob funguje na Linuxu i Windows a nezávisí na pořadí připojení.
 - `modbus_rtu_bus` má buď vlastní `port` (zadaný stejně jako porty `serial_ports`), nebo `link: <zařízení>.<kanál>`, odkaz na sériový port jiného zařízení (kanál FT4232H, port `sim_serial`). Druhý způsob používají testy ovladačů proti simulovanému slave.
 - `analog_out` má buď `direct` (rychlý kanál bez relé), nebo `select` + `connect`. Relé `select` v klidu (NC) vybírá generátor 1, sepnuté (NO) generátor 2. Relé `connect` připojuje vstup DUT, rozepnuté znamená bez signálu.
+- Sekce `analog` uvádí kanály AWG, které výstupní multiplexer přepíná: `generators: [generátor 1, generátor 2]`. Je povinná, pokud má některá svorka `select` a `connect`. Kanál AWG smí být současně v `generators` a v `direct` jedné svorky, protože rychlý kanál je na generátor zapojený trvale.
+- Jeden kanál scope smí sdílet více svorek `analog_in` (měřicí multiplexer), pokud má každá z nich relé `connect`. Ostatní prostředky se sdílet nesmí.
 - `fault_path` má relé `series` v cestě vodiče a volitelně `short` pro zkrat na zem. Zkrat svorky označené `carries_power: true` je povolen jen s `allow_short: true` (zdroje HDR nemají proudové omezení).
 - Volitelné časy: `settle_s` u `analog_in` (doba ustálení multiplexeru, výchozí 0,02 s).
 
@@ -177,7 +182,7 @@ class WaveshareRelay32(Device):
 | `waveshare_relay32` | 32 coilů. Adresa prvního coilu a funkční kódy jsou v konfiguraci s výchozí hodnotou (coily 0 až 31, zápis FC05/FC15, čtení FC01), protože mapa registrů není ověřena na hardwaru |
 | `quido_rs_2_32` | 32 coilů a 2 vstupy (výchozí coily 0 až 31, vstupy jako discrete inputs 0 a 1), modul musí být přepnutý z protokolu Spinel do Modbus RTU. Mapa neověřena, řeší se stejně jako u Waveshare |
 | `modbus_di` | obecné čtení vstupů: zdroj (discrete inputs, nebo input registry po 16 vstupech od nejnižšího bitu), adresa prvního vstupu, počet, inverze. Všechny vstupy se čtou jedním požadavkem |
-| `analog_discovery_3` | vazba `ctypes` na `libdwf.so` (Linux) nebo `dwf.dll` (Windows), knihovna se načte až v `open()`. Jeden handle pro 2 kanály AWG a 2 kanály scope |
+| `analog_discovery_3` | vazba `ctypes` na `libdwf.so` (Linux) nebo `dwf.dll` (Windows), knihovna se načte až v `open()`, cestu lze změnit volbou `library`. Zařízení se vybírá volbou `serial`, bez ní se použije jediné připojené AD3. Jeden handle pro 2 kanály AWG a 2 kanály scope. Rozsah scope je ±25 V. Po zavření zařízení generátory neběží (`DwfParamOnClose`), bezpečný stav je zastavený generátor s 0 V. Krátký záznam používá režim single, delší režim record |
 | `serial_ports` | pyserial. Na Linuxu nastaví u FTDI latency timer na 1 ms přes sysfs. Na Windows se hodnota nekontroluje, jen se upozorní v logu (nastavuje se ve Správci zařízení) |
 | `openocd` | spouští `openocd` / `openocd.exe` (PATH nebo cesta v konfiguraci) s timeoutem, výstup ukládá do záznamů |
 
@@ -187,7 +192,7 @@ class WaveshareRelay32(Device):
 
 - `sim_di` může zrcadlit sim relé (`mirror: {0: rel1.2}`), takže lze vytvořit smyčku stimul a odezva.
 - `sim_serial` vytváří propojené virtuální páry portů (např. aktivní RS-485 a monitor, konzole a strana DUT ovladatelná z testu).
-- `sim_ad3` vrací průběh odpovídající nastavení v konfiguraci (konstanta nebo sinus se šumem).
+- `sim_ad3` drží nastavení generátorů v paměti a jako vstup scope vrací průběh z konfigurace (`inputs: {ch1: {dc, sine: {freq, amp}, noise}}`), který lze z testu změnit metodou `set_input()`.
 - `sim_probe` zaznamenává volání `flash`, `reset` a `halt` a umí nasimulovat selhání.
 - Vestavěné stanoviště `sim` (`src/hil/stations/sim.yaml`, distribuuje se s balíčkem) zapojuje všechny svorky profilu `standard-v1` na sim ovladače. Repozitář DUT tak může spustit své testy naprázdno volbou `--hil-station sim`.
 
@@ -229,7 +234,15 @@ Vstupy `sense` se čtou pollingem ve vlákně. Nejkratší perioda je dána ovla
 
 Bloky `hil.power`, `hil.digital`, `hil.faults`, `hil.comm`, `hil.debug`, `hil.analog` nabízejí stejné operace nad jmény svorek (pro diagnostiku stanoviště a práci bez `dut.yaml`) a drží pravidla přes více svorek:
 
-- **AnalogBlock:** spravuje 2 generátory. `sine()` na svorce s multiplexerem přidělí volný generátor a nastaví `select` a `connect`. Pokud jsou oba generátory obsazené, vyhodí `ResourceConflict`. `follow()` připojí další svorku na generátor jiné svorky. Měřicí multiplexer přepíná nejdřív rozepnutím, potom sepnutím, a čeká `settle_s`. Dvě svorky na jednom měřicím kanálu současně vyhodí `ResourceConflict`.
+- **AnalogBlock:** spravuje 2 generátory ze sekce `analog`. Generátor je volný, když k němu není připojena žádná svorka.
+  - `sine()` (a ostatní průběhy) na svorce s multiplexerem, která ještě generátor nemá, přidělí volný generátor. Přednost má generátor bez svorky `direct`, aby rychlý kanál zůstal volný. Pokud volný generátor není, vyhodí `ResourceConflict`. Svorka `direct` má generátor pevně daný. Pokud ho používají svorky přes multiplexer, vyhodí `ResourceConflict`.
+  - Pořadí přepnutí: nastavit a spustit generátor, potom `select` (jen při změně, předtím se rozepne `connect`), potom `connect`. Každý krok je jeden rámec, takže DUT nedostane ani na okamžik signál druhého generátoru.
+  - `follow(other)` připojí svorku na generátor svorky `other`. Generátor je pak sdílený a změna průběhu na kterékoli z připojených svorek platí pro všechny. Samostatný signál vyžaduje nejdřív `disconnect()`.
+  - `disconnect()` rozepne `connect`. Když ke generátoru nezůstane připojena žádná svorka, generátor se zastaví a uvolní.
+  - Svorka `direct` je na generátor zapojená trvale. Když generátor používá multiplexer, signál je i na ní. Zaznamená se to do `events.jsonl`.
+  - `measure(duration_s=0.1)` vzorkuje 100 kHz a vrací `Measurement(dc, rms_ac)`: průměr a RMS po odečtení průměru.
+  - Měřicí multiplexer přepíná nejdřív rozepnutím `connect` jiné svorky na stejném kanálu, potom sepnutím vlastní, a čeká `settle_s`. Po měření zůstane svorka připojená, dokud kanál nepotřebuje jiná svorka. Dvě svorky na jednom měřicím kanálu současně vyhodí `ResourceConflict`.
+- **Bezpečný stav analogu:** generátory zastaveny s 0 V a uvolněny, relé `connect` a `select` rozepnuta.
 - **FaultMatrix:** `restore_all()`, pravidlo `allow_short` (kap. 3.2).
 - **PowerBlock:** `emergency_off()` rozepne napájecí relé bez čekání na zámky ostatních operací. `outage()` přepíná oba póly jedním rámcem a dobu odměřuje `time.perf_counter()`. Skutečná přesnost závisí na relé a latenci Modbusu a ověří se HW testem (cíl odchylka pod 10 ms).
 - Změny více relé jednoho zařízení v jedné operaci jdou jedním rámcem (`set_many`).
@@ -291,7 +304,7 @@ src/hil/
   drivers/
     base.py registry.py     # Device, register_driver, dependency ordering
     modbus_bus.py waveshare_relay.py quido.py modbus_di.py
-    analog_discovery.py dwf.py
+    analog_discovery.py dwf.py   # driver; thin ctypes layer over libdwf
     serial_ports.py openocd.py
     sim/
   resources.py
@@ -311,7 +324,7 @@ tests/hw/                   # hardware checks, marker hw
 doc/software/               # user documentation
 ```
 
-**Závislosti:** `pydantic>=2`, `pyyaml`, `pyserial`, `filelock`, `pytest`. WaveForms SDK (s Adept runtime) a OpenOCD jsou systémové programy, potřebné jen pro příslušný ovladač. Modbus RTU (master, slave, kodek) je vlastní implementace v `hil.comm`. numpy přibude s analogovou částí.
+**Závislosti:** `pydantic>=2`, `pyyaml`, `pyserial`, `filelock`, `pytest`, `numpy`. WaveForms SDK (s Adept runtime) a OpenOCD jsou systémové programy, potřebné jen pro příslušný ovladač. Modbus RTU (master, slave, kodek) je vlastní implementace v `hil.comm`.
 
 ## 10. Testování balíčku
 

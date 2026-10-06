@@ -105,6 +105,7 @@ def _info(station: Station) -> int:
         "faults": list(station.faults.paths),
         "comm": [*station.comm.serials, *station.comm.rs485s, *station.comm.monitors],
         "debug": list(station.debug.signals),
+        "analog": [*station.analog.outputs, *station.analog.inputs],
     }
     print("blocks:")
     for block, names in blocks.items():

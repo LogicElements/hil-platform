@@ -1,6 +1,8 @@
 """Device drivers. Importing this package registers all built-in drivers."""
 
 from hil.drivers import (
+    analog_discovery,
+    dwf,
     modbus_bus,
     modbus_di,
     openocd,
@@ -12,8 +14,10 @@ from hil.drivers import (
 from hil.drivers.registry import create_device, driver_names, open_order, register_driver
 
 __all__ = [
+    "analog_discovery",
     "create_device",
     "driver_names",
+    "dwf",
     "modbus_bus",
     "modbus_di",
     "open_order",

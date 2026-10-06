@@ -65,12 +65,6 @@ def test_wrong_resource_type(tmp_path):
         make(tmp_path, STATION.replace("input: di1.0", "input: rel1.5"))
 
 
-def test_unsupported_kind(tmp_path):
-    text = STATION + "  AO.0: {kind: analog_out, direct: rel1.5}\n"
-    with pytest.raises(ConfigError, match="kind 'analog_out' is not supported"):
-        make(tmp_path, text)
-
-
 def test_terminal_lookup(tmp_path):
     station = make(tmp_path)
     assert station.terminal("PWR") is station.terminals["PWR"]

@@ -2,8 +2,8 @@
 # Serial numbers and device paths marked REPLACE are placeholders until the station is
 # built; put in the values of the real devices and check them with
 #   hil check --station stations/lab-a.yaml --probe
-# Analog terminals (AO.*, AI.*) are wired in plan 4 together with the Analog Discovery 3;
-# rel2 is reserved for their multiplexer.
+# rel2 is the analog multiplexer: AO.1 to AO.4 use select/connect pairs rel2.0 to rel2.7,
+# AI.1 to AI.4 the connect relays rel2.8 to rel2.11.
 name: lab-a
 labels: [hil, lab-a]
 profile: standard-v1
@@ -25,6 +25,11 @@ devices:
       C: {serial: FT4232-REPLACE, interface: 2}
       D: {serial: FT4232-REPLACE, interface: 3}
   stlink: {driver: openocd, interface: interface/stlink.cfg}
+  # Digilent Analog Discovery 3: generators awg1, awg2 (±5 V), scope ch1, ch2 (±25 V)
+  ad3: {driver: analog_discovery_3, serial: REPLACE}
+analog:
+  # select relay released (NC) = generator 1, operated (NO) = generator 2
+  generators: [ad3.awg1, ad3.awg2]
 terminals:
   PWR: {kind: power, relays: [rel1.0, rel1.1]}
   X1.1: {kind: switch, relay: rel1.2}
@@ -48,3 +53,14 @@ terminals:
   COM1: {kind: rs485, port: ft.C}
   MON1: {kind: rs485_monitor, port: ft.D}
   SWD: {kind: debug, probe: stlink}
+  # fast channel without relays (HW-ANA-03), permanently on generator 1
+  AO.0: {kind: analog_out, direct: ad3.awg1}
+  AO.1: {kind: analog_out, select: rel2.0, connect: rel2.1}
+  AO.2: {kind: analog_out, select: rel2.2, connect: rel2.3}
+  AO.3: {kind: analog_out, select: rel2.4, connect: rel2.5}
+  AO.4: {kind: analog_out, select: rel2.6, connect: rel2.7}
+  # measuring multiplexer: two DUT outputs per scope channel
+  AI.1: {kind: analog_in, scope: ad3.ch1, connect: rel2.8}
+  AI.2: {kind: analog_in, scope: ad3.ch1, connect: rel2.9}
+  AI.3: {kind: analog_in, scope: ad3.ch2, connect: rel2.10}
+  AI.4: {kind: analog_in, scope: ad3.ch2, connect: rel2.11}

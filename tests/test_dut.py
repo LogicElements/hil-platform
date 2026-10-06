@@ -23,10 +23,12 @@ def test_signal_by_attribute(dut):
     dut.alarm_out.wait_for(True, timeout=0.5)
 
 
-def test_unwired_signal(dut):
-    assert not dut.available("sensor_in3")
-    with pytest.raises(SignalUnavailable, match=r"signal 'sensor_in3'.*'AO.1' is not wired"):
-        dut.sensor_in3  # noqa: B018
+def test_unwired_signal(no_analog_station):
+    with Station.from_files(no_analog_station) as station:
+        dut = Dut(load_dut(EXAMPLE, station.profile), station)
+        assert not dut.available("sensor_in3")
+        with pytest.raises(SignalUnavailable, match=r"signal 'sensor_in3'.*'AO.1' is not wired"):
+            dut.sensor_in3  # noqa: B018
 
 
 def test_unknown_signal_is_attribute_error(dut):

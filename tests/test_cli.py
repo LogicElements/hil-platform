@@ -20,15 +20,16 @@ def test_check_builtin_station(capsys):
 def test_check_with_dut_and_probe(capsys):
     assert main(["check", "--station", "sim", "--dut", str(EXAMPLE_DUT), "--probe"]) == 0
     out = capsys.readouterr().out
-    assert "DUT 'example': 10 signals OK" in out
-    assert "all 4 devices opened" in out
+    assert "DUT 'example': 11 signals OK" in out
+    assert "all 6 devices opened" in out
 
 
 def test_info(capsys):
     assert main(["info", "--station", "sim"]) == 0
     out = capsys.readouterr().out
     assert re.search(r"X1\.1\s+switch\s+wired", out)
-    assert re.search(r"AO\.1\s+analog_out\s+not wired", out)
+    assert re.search(r"AO\.1\s+analog_out\s+wired", out)
+    assert re.search(r"analog\s+AO\.0, AO\.1, AO\.2, AO\.3, AO\.4, AI\.1, AI\.2, AI\.3, AI\.4", out)
     assert re.search(r"rel1\s+sim_relay", out)
     assert re.search(r"power\s+PWR", out)
     assert re.search(r"comm\s+CON, LOG, COM1, MON1", out)

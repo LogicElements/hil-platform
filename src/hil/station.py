@@ -11,9 +11,12 @@ from types import FrameType
 from typing import Any
 
 import hil.drivers  # noqa: F401  (registers the built-in drivers)
-from hil.blocks import CommBlock, DebugBlock, DigitalBlock, FaultMatrix, PowerBlock
+from hil.blocks import AnalogBlock, CommBlock, DebugBlock, DigitalBlock, FaultMatrix, PowerBlock
 from hil.config.loader import LoadedStation, load_station
 from hil.config.models import (
+    AnalogConfig,
+    AnalogInTerminal,
+    AnalogOutTerminal,
     DebugTerminal,
     FaultPathTerminal,
     PowerTerminal,
@@ -29,13 +32,24 @@ from hil.drivers.base import Device
 from hil.drivers.registry import create_device, open_order
 from hil.errors import ConfigError, DeviceError, SignalUnavailable, TerminationRequested
 from hil.recording import Recorder
-from hil.resources import DebugProbe, DigitalInput, RelayChannel, SerialLink
+from hil.resources import (
+    AwgChannel,
+    DebugProbe,
+    DigitalInput,
+    RelayChannel,
+    ScopeChannel,
+    SerialLink,
+)
 from hil.signals import (
+    AnalogIn,
+    AnalogOut,
+    AnalogRouter,
     DebugSignal,
     FaultPath,
     PowerSignal,
     Rs485Monitor,
     Rs485Signal,
+    ScopeMux,
     SenseSignal,
     SerialSignal,
     Signal,
@@ -65,11 +79,16 @@ class Station:
                 self.devices[name].bind(self.devices)
             except ConfigError as exc:
                 raise ConfigError(f"{self.source}: {exc}") from exc
+        analog = self.config.analog
+        generators = [] if analog is None else [self._generator(r) for r in analog.generators]
+        self._router = AnalogRouter(generators, self.recorder)
+        self._scope_muxes: dict[ScopeChannel, ScopeMux] = {}
         self.terminals: dict[str, Signal] = {
             name: self._build(name, terminal) for name, terminal in self.config.terminals.items()
         }
         self._terminal_devices: dict[str, frozenset[str]] = {
-            name: _devices_of(terminal) for name, terminal in self.config.terminals.items()
+            name: _devices_of(terminal, self.config.analog)
+            for name, terminal in self.config.terminals.items()
         }
         terminals = self.profile.terminals
         self.power = PowerBlock(self._of(PowerSignal), terminals)
@@ -79,6 +98,7 @@ class Station:
             self._of(SerialSignal), self._of(Rs485Signal), self._of(Rs485Monitor), terminals
         )
         self.debug = DebugBlock(self._of(DebugSignal), terminals)
+        self.analog = AnalogBlock(self._of(AnalogOut), self._of(AnalogIn), terminals)
         self._opened: list[str] = []
         self._previous_handlers: dict[int, _Handler] = {}
         self._atexit_registered = False
@@ -107,6 +127,18 @@ class Station:
             )
         return resource
 
+    def _optional[T](self, terminal: str, ref: ResourceRef | None, expected: type[T]) -> T | None:
+        return None if ref is None else self._resource(terminal, ref, expected)
+
+    def _generator(self, ref: ResourceRef) -> AwgChannel:
+        try:
+            resource = self.devices[ref.device].resource(ref.channel)
+        except ConfigError as exc:
+            raise ConfigError(f"{self.source}: analog generator {ref}: {exc}") from exc
+        if not isinstance(resource, AwgChannel):
+            raise ConfigError(f"{self.source}: analog generator {ref} is not an AwgChannel")
+        return resource
+
     def _build(self, name: str, terminal: object) -> Signal:
         rec = self.recorder
         match terminal:
@@ -127,6 +159,28 @@ class Station:
                     short=None if short is None else self._resource(name, short, RelayChannel),
                     carries_power=fault.carries_power,
                     allow_short=fault.allow_short,
+                )
+            case AnalogOutTerminal() as out:
+                return AnalogOut(
+                    name,
+                    rec,
+                    self._router,
+                    direct=self._optional(name, out.direct, AwgChannel),
+                    select=self._optional(name, out.select, RelayChannel),
+                    connect=self._optional(name, out.connect, RelayChannel),
+                )
+            case AnalogInTerminal() as inp:
+                scope = self._resource(name, inp.scope, ScopeChannel)
+                mux = self._scope_muxes.get(scope)
+                if mux is None:
+                    mux = self._scope_muxes[scope] = ScopeMux(scope)
+                return AnalogIn(
+                    name,
+                    rec,
+                    scope,
+                    mux,
+                    connect=self._optional(name, inp.connect, RelayChannel),
+                    settle_s=inp.settle_s,
                 )
             case SerialTerminal(port=port):
                 return SerialSignal(name, rec, self._resource(name, port, SerialLink))
@@ -352,9 +406,15 @@ class Station:
         return f"<Station {self.name} ({self.source})>"
 
 
-def _devices_of(terminal: Any) -> frozenset[str]:
-    """Names of the devices a station terminal uses."""
+def _devices_of(terminal: Any, analog: AnalogConfig | None) -> frozenset[str]:
+    """Names of the devices a station terminal uses.
+
+    A terminal behind the output multiplexer also needs the generators: its safe state
+    stops the generator it uses.
+    """
     devices = {ref.device for ref in terminal_refs(terminal)}
     if isinstance(terminal, DebugTerminal):
         devices.add(terminal.probe)
+    if isinstance(terminal, AnalogOutTerminal) and terminal.select is not None and analog:
+        devices.update(ref.device for ref in analog.generators)
     return frozenset(devices)

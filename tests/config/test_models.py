@@ -150,3 +150,114 @@ def test_debug_params():
         signal_params("debug", {})
     with pytest.raises(ValidationError):
         signal_params("debug", {"target": "t.cfg", "speed": 4000})
+
+
+ANALOG_DEVICES = {
+    "rel1": {"driver": "sim_relay", "channels": 8},
+    "rel2": {"driver": "sim_relay", "channels": 16},
+    "ad3": {"driver": "sim_ad3"},
+}
+
+
+def analog_station(terminals, analog=None):
+    data = {"devices": ANALOG_DEVICES, "terminals": terminals}
+    if analog is not None:
+        data["analog"] = analog
+    return station(**data)
+
+
+def test_analog_section():
+    cfg = analog_station(
+        {
+            "AO.0": {"kind": "analog_out", "direct": "ad3.awg1"},
+            "AO.1": {"kind": "analog_out", "select": "rel2.0", "connect": "rel2.1"},
+        },
+        analog={"generators": ["ad3.awg1", "ad3.awg2"]},
+    )
+    assert cfg.analog is not None
+    assert [str(g) for g in cfg.analog.generators] == ["ad3.awg1", "ad3.awg2"]
+
+
+def test_station_without_analog_section():
+    assert station().analog is None
+
+
+def test_mux_output_needs_analog_section():
+    with pytest.raises(ValidationError, match=r"'AO.1' uses the output multiplexer"):
+        analog_station({"AO.1": {"kind": "analog_out", "select": "rel2.0", "connect": "rel2.1"}})
+
+
+@pytest.mark.parametrize("generators", [["ad3.awg1"], ["ad3.awg1", "ad3.awg2", "ad3.awg1"]])
+def test_analog_needs_two_generators(generators):
+    with pytest.raises(ValidationError, match="generators"):
+        analog_station({}, analog={"generators": generators})
+
+
+def test_analog_generators_differ():
+    with pytest.raises(ValidationError, match="must differ"):
+        analog_station({}, analog={"generators": ["ad3.awg1", "ad3.awg1"]})
+
+
+def test_analog_generator_unknown_device():
+    with pytest.raises(ValidationError, match=r"generator nope.awg1 refers to unknown device"):
+        analog_station({}, analog={"generators": ["nope.awg1", "ad3.awg2"]})
+
+
+def test_generator_used_by_other_terminal():
+    with pytest.raises(
+        ValidationError, match=r"generator ad3.awg1 is also used by terminal 'X1.1'"
+    ):
+        analog_station(
+            {"X1.1": {"kind": "switch", "relay": "ad3.awg1"}},
+            analog={"generators": ["ad3.awg1", "ad3.awg2"]},
+        )
+
+
+def test_two_direct_outputs_on_one_generator():
+    with pytest.raises(ValidationError, match=r"ad3.awg1 is used by both 'AO.0' and 'AO.1'"):
+        analog_station(
+            {
+                "AO.0": {"kind": "analog_out", "direct": "ad3.awg1"},
+                "AO.1": {"kind": "analog_out", "direct": "ad3.awg1"},
+            }
+        )
+
+
+def test_shared_scope_with_connect_relays():
+    cfg = analog_station(
+        {
+            "AI.1": {"kind": "analog_in", "scope": "ad3.ch1", "connect": "rel2.8"},
+            "AI.2": {"kind": "analog_in", "scope": "ad3.ch1", "connect": "rel2.9"},
+        }
+    )
+    assert set(cfg.terminals) == {"AI.1", "AI.2"}
+
+
+def test_shared_scope_needs_connect_relays():
+    with pytest.raises(ValidationError, match=r"ad3.ch1 is shared by 'AI.1', 'AI.2'"):
+        analog_station(
+            {
+                "AI.1": {"kind": "analog_in", "scope": "ad3.ch1", "connect": "rel2.8"},
+                "AI.2": {"kind": "analog_in", "scope": "ad3.ch1"},
+            }
+        )
+
+
+def test_scope_used_by_other_kind():
+    with pytest.raises(ValidationError, match=r"ad3.ch1 is used by both 'X1.1' and 'AI.1'"):
+        analog_station(
+            {
+                "X1.1": {"kind": "switch", "relay": "ad3.ch1"},
+                "AI.1": {"kind": "analog_in", "scope": "ad3.ch1"},
+            }
+        )
+
+
+def test_connect_relay_used_twice():
+    with pytest.raises(ValidationError, match=r"rel2.8 is used by both 'AI.1' and 'AI.2'"):
+        analog_station(
+            {
+                "AI.1": {"kind": "analog_in", "scope": "ad3.ch1", "connect": "rel2.8"},
+                "AI.2": {"kind": "analog_in", "scope": "ad3.ch2", "connect": "rel2.8"},
+            }
+        )

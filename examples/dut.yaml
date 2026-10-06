@@ -7,6 +7,7 @@ signals:
   alarm_out: X2.1
   link_ab_rs485: F1
   sensor_in3: AO.1
+  sensor_out1: AI.1
   console: {terminal: CON, baud: 115200}
   log: {terminal: LOG, baud: 115200}
   rs485: {terminal: COM1, baud: 921600, parity: E}

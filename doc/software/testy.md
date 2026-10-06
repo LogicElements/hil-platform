@@ -32,7 +32,7 @@ Návratové kódy pytestu: 4 při chybě konfigurace stanoviště nebo DUT (nepl
 - `dut`: signály DUT podle `dut.yaml`. Marker `hil_requires` funguje jen u testů, které používají `dut`.
 - `hil`: celé stanoviště (`hil.power`, `hil.digital`, `hil.faults`, `hil.devices`) pro diagnostiku nebo testy bez `dut.yaml`.
 
-Každý test, který používá `hil` nebo `dut` (i nepřímo přes jinou fixture), dostane po skončení, i neúspěšném, bezpečný stav stanoviště (napájení vypnuto, poruchy obnoveny, relé rozepnuta) a vlastní adresář záznamů. Pokud bezpečný stav nejde nastavit, běh se ukončí s kódem 3.
+Každý test, který používá `hil` nebo `dut` (i nepřímo přes jinou fixture), dostane po skončení, i neúspěšném, bezpečný stav stanoviště (napájení vypnuto, poruchy obnoveny, generátory zastaveny a odpojeny, relé rozepnuta) a vlastní adresář záznamů. Pokud bezpečný stav nejde nastavit, běh se ukončí s kódem 3.
 
 ```python
 import pytest
@@ -62,6 +62,8 @@ def test_analog_input(dut):
 | `rs485` | `modbus.read_holding_registers(adresa, start, počet)` a další funkce 1–6, 15, 16; `with slave(adresa, store):`; `send_raw(bajty)`; `inject(druh, rámec)` (`bad_crc`, `truncated`, `extended`, `bad_parity`); `flood(s)` |
 | `rs485_monitor` | `start()`, `stop()`, `frames`, `wait_for_frame(podmínka, timeout)`; záznam do `rs485-<signál>.jsonl` |
 | `debug` | `flash(obraz) -> ProbeResult`, `flash_interrupted(obraz, after_s)`, `reset()`, `halt()`; výstup sondy do `openocd.log` |
+| `analog_out` | `sine(freq, amp, offset=0)`, `square(freq, amp, offset=0, duty=0.5)`, `dc(v)`, `arbitrary(vzorky, rate)`, `follow(jiný_signál)`, `disconnect()`, `generator`, `waveform` |
+| `analog_in` | `measure(duration_s=0.1) -> Measurement(dc, rms_ac)`, `capture(duration_s, rate=100000) -> numpy.ndarray`; měření do `measurements.jsonl` |
 
 Časy jsou v sekundách z `hil.clock.now()`.
 
@@ -73,13 +75,25 @@ Signál `debug` předá operaci sondě s cílem z `dut.yaml` (bez `dut.yaml` př
 
 `inject` a `flood` sestavují rámce z `hil.comm.faults`; `extend` přidává ve výchozím stavu bajt `0xFF` (rámec prodloužený o `0x00` by mohl mít stále platné CRC). Bajty, které netvoří platný rámec (např. zbloudilý bajt nebo zkrácený rámec), monitor zaznamená jako chybový rámec a v dávce pokračuje od místa, odkud se zbytek dávky rozdělí na platné rámce. Monitor rozpozná i rámce, jejichž CRC končí bajtem `0x00`: rámce dělí podle CRC a všechny rámce jedné dávky nesou časové razítko prvního kusu dávky.
 
+### Analogové signály
+
+Stanoviště má dva generátory (sekce `analog`). Průběh na svorce s multiplexerem přidělí volný generátor. Přednost má generátor, na kterém není svorka `direct`, aby rychlý kanál zůstal volný. Pokud jsou oba generátory obsazené, vyhodí `ResourceConflict`. Generátor se nejdřív nastaví a spustí, potom se přepne relé `select` a nakonec sepne `connect`, takže vstup DUT nikdy nedostane ani na okamžik signál druhého generátoru. Změna průběhu na svorce, která už generátor má, změní jen generátor.
+
+`follow(jiný_signál)` připojí svorku na generátor jiné svorky. Generátor je pak sdílený a změna průběhu na kterékoli z nich platí pro obě. `disconnect()` na svorce s multiplexerem rozepne `connect` (stav bez signálu). Když ke generátoru nezůstane připojena žádná svorka, generátor se zastaví. Svorka `direct` (`AO.0`) je na generátor 1 zapojená trvale a relé nemá: když generátor 1 používá svorka s multiplexerem, signál je i na `AO.0` (v `events.jsonl` událost `shared_generator`). `disconnect()` na `AO.0` jen zastaví generátor, pokud ho nepoužívá žádná jiná svorka; signál, který na generátor 1 dává svorka s multiplexerem, na `AO.0` zůstane. Dokud generátor 1 používá svorka s multiplexerem, `dc()`, `sine()` a další průběhy na `AO.0` vyhodí `ResourceConflict`. Naopak když generátor 1 drží `AO.0`, má multiplexer k dispozici jen generátor 2 a další svorka s multiplexerem dostane `ResourceConflict`, pokud je i ten obsazený.
+
+`amp` je amplituda (špička), napětí se uvádí ve voltech. Průběh mimo rozsah generátoru (AD3 ±5 V) vyhodí `ValueError` dřív, než se přepne jakékoli relé.
+
+`measure()` vzorkuje 100 kHz a vrací průměr (`dc`) a RMS po odečtení průměru (`rms_ac`). Svorky na jednom kanálu scope se přepínají měřicím multiplexerem: nejdřív se rozepne relé jiné svorky, potom sepne relé měřené svorky a počká se `settle_s`. Svorka zůstane připojená, dokud kanál nepotřebuje jiná svorka. Kanál scope měří vždy jen jednu svorku najednou: `measure()`, které začne, zatímco na stejném kanálu scope ještě běží jiné měření (typicky z jiného vlákna), vyhodí `ResourceConflict` a nečeká. Platí to pro libovolnou svorku na tomto kanálu včetně té právě měřené a i pro kanál bez multiplexeru.
+
+Bez `dut.yaml` se analog ovládá přes blok `hil.analog`: `hil.analog.sine("AO.1", 1000, 1.0)`, `hil.analog.follow("AO.2", "AO.1")`, `hil.analog.measure("AI.1")`, `hil.analog.disconnect_all()`.
+
 ## Přeskakování
 
 Pokud test použije signál, jehož svorka na stanovišti není zapojená, test se přeskočí s důvodem. Platí to i pro použití ve fixture. Marker `hil_requires` přeskočí test ještě před spuštěním. Překlep ve jméně signálu je chyba testu.
 
 ## Záznamy
 
-Každý test s fixture `hil` nebo `dut` má adresář `out/<id testu>/` (znaky nevhodné pro jména souborů se nahradí; je-li jméno upraveno nebo zkráceno, připojí se `-` a 8 znaků hashe id testu, aby se adresáře různých testů nepřekrývaly). Soubor `events.jsonl` obsahuje všechny změny signálů s časem od začátku testu. První řádek každého souboru nese čas začátku testu (UTC). Komunikační signály přidávají `serial-<signál>.log` (řádek = čas od začátku testu a text) a `rs485-<signál>.jsonl` (čas, bajty v hex, dekódovaný rámec nebo chyba). Signál `debug` zapisuje výstup sondy do `openocd.log` (řádek `--- <signál>: <operace>` a za ním výstup).
+Každý test s fixture `hil` nebo `dut` má adresář `out/<id testu>/` (znaky nevhodné pro jména souborů se nahradí; je-li jméno upraveno nebo zkráceno, připojí se `-` a 8 znaků hashe id testu, aby se adresáře různých testů nepřekrývaly). Soubor `events.jsonl` obsahuje všechny změny signálů s časem od začátku testu. První řádek každého souboru nese čas začátku testu (UTC). Komunikační signály přidávají `serial-<signál>.log` (řádek = čas od začátku testu a text) a `rs485-<signál>.jsonl` (čas, bajty v hex, dekódovaný rámec nebo chyba). Signál `debug` zapisuje výstup sondy do `openocd.log` (řádek `--- <signál>: <operace>` a za ním výstup). Signály `analog_in` zapisují výsledky `measure()` do `measurements.jsonl` (čas, svorka, `dc`, `rms_ac`, délka a vzorkovací frekvence).
 
 ## Přerušení běhu
 

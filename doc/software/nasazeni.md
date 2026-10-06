@@ -14,7 +14,7 @@
    /opt/hil/venv/bin/pip install -e /opt/hil/hil-platform
    ```
 3. OpenOCD z distribuce: `sudo apt install openocd`. Balíček přidá pravidla udev pro ST-Link. Ovladač `openocd` používá syntaxi `adapter serial` a `adapter speed`, potřebuje tedy OpenOCD 0.12 nebo novější (`adapter serial` je od verze 0.12.0, starší verze měly `hla_serial`). Debian bookworm obsahuje verzi 0.12.
-4. WaveForms a Adept runtime pro Analog Discovery 3 se instalují podle [návodu Digilentu](../vyber/doporuceni.md) (ARM64 na Raspberry Pi 5). Ovladač přibude v plánu 4.
+4. WaveForms a Adept runtime pro Analog Discovery 3 se instalují podle [návodu Digilentu](https://digilent.com/reference/test-and-measurement/guides/getting-started-with-raspberry-pi) (na Raspberry Pi 5 verze ARM64, na x86 balíčky `.deb` pro amd64). Adept runtime přidá pravidla udev pro přístup k AD3. Ovladač `analog_discovery_3` načte knihovnu `libdwf.so` při otevření stanoviště. Pokud je knihovna jinde než v cestě dynamického linkeru, uveďte ji ve stanovišti volbou `library`. Ověření: `hil check --station stations/lab-a.yaml --probe`.
 
 ### Pravidla udev
 
@@ -33,4 +33,5 @@ SIGINT (Ctrl+C), SIGTERM (`systemctl stop`, zrušení jobu v GitHub Actions) a S
 - Ovladač FTDI VCP je součástí Windows Update. Latency timer nastavte ve Správci zařízení: port, Vlastnosti, Port Settings, Advanced, Latency Timer 1 ms. Balíček ho na Windows neověřuje, jen to připomene v logu.
 - Port lze zadat jako `COM7` nebo sériovým číslem čipu FTDI (`{serial: FT4ABC, interface: 2}`). Jednokanálový čip (FT232R, FT232H) má jen `interface: 0`.
 - OpenOCD (např. sestavení xPack) přidejte do `PATH`, nebo ve stanovišti uveďte `command: [C:/tools/openocd/bin/openocd.exe]`.
+- WaveForms (s Adept runtime) nainstaluje `dwf.dll` do systémového adresáře, ovladač ji najde bez další konfigurace. Program WaveForms musí být během testů zavřený, AD3 jde otevřít jen jedním programem.
 - Ukončení: Ctrl+C a Ctrl+Break přeruší běh stejně jako na Linuxu.

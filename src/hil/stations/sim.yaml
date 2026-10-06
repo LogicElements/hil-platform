@@ -1,8 +1,11 @@
 # Built-in simulated station: every device is simulated, no hardware is needed.
-# It wires every power, switch, sense, fault_path, serial, rs485 and rs485_monitor
-# terminal of the standard-v1 profile (analog terminals are not wired).
+# It wires every terminal of the standard-v1 profile.
 # SWD is wired to the simulated probe ``probe``.
 # X1.1 is looped back to X2.1 (di1.0 mirrors rel1.2), so stimulus and response can be tested.
+# Analog: AO.0 is wired directly to generator 1 of the simulated Analog Discovery 3,
+# AO.1 to AO.4 go through the output multiplexer on rel2. AI.1, AI.2 share scope channel
+# ch1, AI.3, AI.4 share ch2. The scope reads fixed signals (ch1: 1 V DC with a 50 Hz sine
+# of 0.5 V, ch2: 12 V DC); the DUT between generators and scope is not simulated.
 # Tests play the DUT side of the serial buses through hil.devices["ser"].endpoint(...):
 # dut_con (console CON), dut_log (log LOG), dut_rs485 (RS-485 bus of COM1 and MON1).
 name: sim
@@ -13,6 +16,10 @@ devices:
   di1: {driver: sim_di, inputs: 8, mirror: {0: rel1.2}}
   ser: {driver: sim_serial, buses: {con: [con, dut_con], log: [log, dut_log], rs485: [com1, mon1, dut_rs485]}}
   probe: {driver: sim_probe}
+  rel2: {driver: sim_relay, channels: 32}
+  ad3: {driver: sim_ad3, inputs: {ch1: {dc: 1.0, sine: {freq: 50, amp: 0.5}}, ch2: {dc: 12.0}}}
+analog:
+  generators: [ad3.awg1, ad3.awg2]
 terminals:
   PWR: {kind: power, relays: [rel1.0, rel1.1]}
   X1.1: {kind: switch, relay: rel1.2}
@@ -36,3 +43,12 @@ terminals:
   COM1: {kind: rs485, port: ser.com1}
   MON1: {kind: rs485_monitor, port: ser.mon1}
   SWD: {kind: debug, probe: probe}
+  AO.0: {kind: analog_out, direct: ad3.awg1}
+  AO.1: {kind: analog_out, select: rel2.0, connect: rel2.1}
+  AO.2: {kind: analog_out, select: rel2.2, connect: rel2.3}
+  AO.3: {kind: analog_out, select: rel2.4, connect: rel2.5}
+  AO.4: {kind: analog_out, select: rel2.6, connect: rel2.7}
+  AI.1: {kind: analog_in, scope: ad3.ch1, connect: rel2.8}
+  AI.2: {kind: analog_in, scope: ad3.ch1, connect: rel2.9}
+  AI.3: {kind: analog_in, scope: ad3.ch2, connect: rel2.10}
+  AI.4: {kind: analog_in, scope: ad3.ch2, connect: rel2.11}

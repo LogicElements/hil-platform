@@ -17,7 +17,13 @@ Volba `-s` ukáže naměřené hodnoty (zpoždění, perioda čtení, délka vý
 | `test_ftdi_latency_timer` | Linux | latency timer všech portů `serial_ports` je 1 ms |
 | `test_rs485_monitor_sees_active_port` | `HIL_HW_RS485_LOOP=1`, `COM1` a `MON1` na jednom páru | záchyt rámce při 921 600 Bd s paritou E |
 | `test_flash_with_openocd` | `HIL_HW_TARGET`, `HIL_HW_IMAGE`, připojený DUT | flashování a reset přes ST-Link |
+| `test_ad3_generator_loopback` | `HIL_HW_AD3_LOOP=1`, propojky W1→1+ a W2→2+, 1− a 2− na zem, DUT odpojený od `AO.0` | DC 2 V a sinus 1 kHz z obou generátorů změřené scope téhož AD3, dlouhý záznam (200 000 vzorků) v režimu record |
+| `test_analog_multiplexer_loopback` | `HIL_HW_ANALOG_LOOP=AO.1:AI.1,AO.2:AI.3` (nejvýš 2 páry) a propojky mezi svorkami, DUT odpojený (aspoň od `AO.0` a od použitých svorek) | oba generátory přes výstupní multiplexer, měřicí multiplexer a stav bez signálu po odpojení |
 
 `test_relay_coil_map` spíná postupně všechna relé včetně napájení a poruchových cest, proto běží jen s `HIL_HW_NO_DUT=1`. Proměnné `HIL_HW_NO_DUT` a `HIL_HW_RS485_LOOP` povolí svůj test jen s hodnotou `1`, jiná hodnota test přeskočí.
+
+`test_ad3_generator_loopback` ověřuje vazbu na WaveForms SDK (funkce generátoru, úroveň DC, režim record). Tolerance jsou 0,1 V u DC a 5 % u RMS. `HIL_HW_AD3_LOOP` povolí test jen s hodnotou `1`. Svorka `AO.0` je na generátoru 1 trvale, proto musí být při testu odpojená od DUT.
+
+`test_analog_multiplexer_loopback` nastaví na svorky postupně 1,5 V a 2,5 V. Při dvou párech dostane druhá svorka generátor 1, který je trvale zapojený i na `AO.0` (bez relé), takže napětí je během testu i na `AO.0`. Proto musí být DUT odpojený, aspoň od `AO.0` a od svorek z `HIL_HW_ANALOG_LOOP`.
 
 Pokud mapa coilů nesouhlasí, upravte ve stanovišti `coil_base`, případně `write: single` (zápis po jednom relé funkcí 5), a test spusťte znovu. U modulu Quido se stejně upravuje `input_base`.

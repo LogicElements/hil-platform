@@ -16,6 +16,7 @@ dependencies = [
     "filelock>=3.12",
     "pytest>=8.1",
     "pyserial>=3.5",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
