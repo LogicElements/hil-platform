@@ -41,14 +41,22 @@ def find_ftdi_port(
 ) -> str:
     """Device of channel ``interface`` (0 = A) of the FTDI chip ``serial_number``."""
     letter = "ABCD"[interface]
-    for port in ports:
-        number = port.serial_number or ""
-        if platform == "win32":
-            # the FTDI VCP driver reports each channel of a multi-port chip with a suffix
-            if number == serial_number + letter:
+    candidates = list(ports)
+    if platform == "win32":
+        # the FTDI VCP driver reports each channel of a multi-port chip with a suffix,
+        # a single-port chip (FT232R, FT232H) without one
+        for port in candidates:
+            if (port.serial_number or "") == serial_number + letter:
                 return str(port.device)
-        elif number == serial_number and (port.location or "").endswith(f":1.{interface}"):
-            return str(port.device)
+        if interface == 0:
+            for port in candidates:
+                if (port.serial_number or "") == serial_number:
+                    return str(port.device)
+    else:
+        for port in candidates:
+            number = port.serial_number or ""
+            if number == serial_number and (port.location or "").endswith(f":1.{interface}"):
+                return str(port.device)
     raise DeviceNotFound(
         f"no FTDI port with serial number {serial_number!r} and interface {interface}"
     )
@@ -77,6 +85,40 @@ def ensure_low_latency(
         )
 
 
+def list_comports_once(owner: str) -> Callable[[], list[Any]]:
+    """A function listing the serial ports of the system at most once (slow on Windows)."""
+    available: list[Any] | None = None
+
+    def comports() -> list[Any]:
+        nonlocal available
+        if available is None:
+            try:
+                available = list(list_ports.comports())
+            except OSError as exc:
+                raise DeviceError(f"device {owner!r}: cannot list serial ports: {exc}") from exc
+        return available
+
+    return comports
+
+
+def port_exists(path: str, comports: Callable[[], list[Any]]) -> bool:
+    if sys.platform != "win32":
+        return os.path.exists(path)
+    name = path.removeprefix("\\\\.\\").upper()  # \\.\COM10 names the port COM10
+    return any(str(port.device).upper() == name for port in comports())
+
+
+def resolve_port(
+    owner: str, channel: str, spec: str | FtdiPort, comports: Callable[[], list[Any]]
+) -> str:
+    """Device path or URL of a port given by path, pyserial URL or FTDI serial number."""
+    if isinstance(spec, FtdiPort):
+        return find_ftdi_port(spec.serial, spec.interface, comports(), platform=sys.platform)
+    if "://" not in spec and not port_exists(spec, comports):
+        raise DeviceNotFound(f"device {owner!r}: serial port {channel!r} not found: {spec}")
+    return spec
+
+
 @register_driver("serial_ports")
 class SerialPorts(Device):
     Config = SerialPortsConfig
@@ -85,6 +127,7 @@ class SerialPorts(Device):
     def __init__(self, name: str, config: SerialPortsConfig) -> None:
         super().__init__(name, config)
         self._devices: dict[str, str] | None = None
+        self._latency_checked: set[str] = set()
 
     def channel_names(self) -> Collection[str]:
         return set(self.config.ports)
@@ -96,31 +139,11 @@ class SerialPorts(Device):
 
     def open(self) -> None:
         """Resolve the device of every channel and check that it exists (ports stay closed)."""
-        available: list[Any] | None = None
-
-        def comports() -> list[Any]:
-            nonlocal available
-            if available is None:
-                try:
-                    available = list(list_ports.comports())
-                except OSError as exc:
-                    raise DeviceError(
-                        f"device {self.name!r}: cannot list serial ports: {exc}"
-                    ) from exc
-            return available
-
-        devices: dict[str, str] = {}
-        for channel, spec in self.config.ports.items():
-            if isinstance(spec, FtdiPort):
-                devices[channel] = find_ftdi_port(
-                    spec.serial, spec.interface, comports(), platform=sys.platform
-                )
-                continue
-            if "://" not in spec and not self._port_exists(spec, comports):
-                raise DeviceNotFound(
-                    f"device {self.name!r}: serial port {channel!r} not found: {spec}"
-                )
-            devices[channel] = spec
+        comports = list_comports_once(self.name)
+        devices = {
+            channel: resolve_port(self.name, channel, spec, comports)
+            for channel, spec in self.config.ports.items()
+        }
         if self.config.low_latency and sys.platform == "win32":
             log.info(
                 "%s: the FTDI latency timer cannot be checked on Windows; set it to 1 ms "
@@ -128,29 +151,28 @@ class SerialPorts(Device):
                 self.name,
             )
         self._devices = devices
-
-    @staticmethod
-    def _port_exists(path: str, comports: Callable[[], list[Any]]) -> bool:
-        if sys.platform != "win32":
-            return os.path.exists(path)
-        name = path.removeprefix("\\\\.\\").upper()  # \\.\COM10 names the port COM10
-        return any(str(port.device).upper() == name for port in comports())
+        self._latency_checked = set()
 
     def close(self) -> None:
         self._devices = None
 
-    def open_port(self, channel: str, params: SerialParams, timeout: float | None) -> serial.Serial:
+    def device_path(self, channel: str) -> str:
+        """Device path or URL of ``channel`` (the device must be open)."""
         if channel not in self.config.ports:
             self._no_channel(channel)
         if self._devices is None:
             raise DeviceError(f"device {self.name!r} is not open")
-        device = self._devices[channel]
+        return self._devices[channel]
+
+    def open_port(self, channel: str, params: SerialParams, timeout: float | None) -> serial.Serial:
+        device = self.device_path(channel)
         try:
             port = serial.serial_for_url(device, timeout=timeout, **port_settings(params))
         except (serial.SerialException, ValueError, OSError) as exc:
             raise DeviceError(
                 f"device {self.name!r}: cannot open port {channel!r} ({device}): {exc}"
             ) from exc
-        if self.config.low_latency:
+        if self.config.low_latency and device not in self._latency_checked:
             ensure_low_latency(device)
+            self._latency_checked.add(device)
         return port

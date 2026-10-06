@@ -36,6 +36,7 @@ packages = ["src/hil"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib"]
+markers = ["hw: needs a real HIL station (set HIL_HW_STATION, see doc/software/hw-testy.md)"]
 
 [tool.ruff]
 line-length = 100

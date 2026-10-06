@@ -1,10 +1,13 @@
+import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
 from hil.drivers.sim.di import SimDi, SimDiConfig
-from hil.errors import WaitTimeout
+from hil.errors import DeviceTimeout, TerminationRequested, WaitTimeout
 from hil.recording import Recorder
+from hil.resources import DigitalInput
 from hil.signals import SenseSignal, SwitchSignal
 
 
@@ -68,3 +71,58 @@ def test_sense_record(loop):
     assert [state for _, state in recording.changes] == [False, True, False]
     assert recording.samples > 2
     assert recording.mean_period_s > 0
+
+
+class _StuckBank:
+    name = "stuck"
+
+    def __init__(self):
+        self.release = threading.Event()
+
+    def read(self, index):
+        self.release.wait(5)
+        return False
+
+
+def test_record_times_out_on_stuck_input(monkeypatch):
+    import hil.signals.digital
+
+    monkeypatch.setattr(hil.signals.digital, "_START_TIMEOUT_S", 0.1)
+    bank = _StuckBank()
+    sense = SenseSignal("X2.1", Recorder(), DigitalInput(bank, 0))
+    try:
+        with pytest.raises(DeviceTimeout, match="first reading"), sense.record():
+            pass
+    finally:
+        bank.release.set()
+
+
+def test_termination_while_starting_record_stops_the_thread(loop, monkeypatch):
+    import hil.signals.digital
+
+    _, sense = loop
+    events = []
+
+    class InterruptedEvent(threading.Event):
+        """The second event of record() is ``started``; its wait gets a signal."""
+
+        def __init__(self):
+            super().__init__()
+            events.append(self)
+
+        def wait(self, timeout=None):
+            if self is events[1]:
+                raise TerminationRequested("SIGTERM")
+            return super().wait(timeout)
+
+    fake_threading = SimpleNamespace(Event=InterruptedEvent, Thread=threading.Thread)
+    monkeypatch.setattr(hil.signals.digital, "threading", fake_threading)
+    with pytest.raises(TerminationRequested), sense.record():
+        pass
+    stop = events[0]
+    assert stop.is_set()
+    monkeypatch.undo()
+    deadline = time.perf_counter() + 2
+    while any(t.name == "hil-record-X2.1" for t in threading.enumerate()):
+        assert time.perf_counter() < deadline, "recording thread still runs"
+        time.sleep(0.01)

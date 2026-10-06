@@ -10,6 +10,7 @@ from hil.config.refs import Ref, ResourceRef
 
 __all__ = [
     "PARAM_MODELS",
+    "DebugParams",
     "DutConfig",
     "Profile",
     "SerialParams",
@@ -254,10 +255,23 @@ class SerialParams(_Strict):
         return max(3.5 * self.char_time_s(), 0.0015)
 
 
+DEFAULT_DEBUG_TIMEOUT_S = 120.0
+
+
+class DebugParams(_Strict):
+    """Parameters of a ``debug`` DUT signal."""
+
+    # OpenOCD target configuration, e.g. target/stm32g4x.cfg
+    target: str = Field(min_length=1)
+    # longest duration of one probe operation (flashing a large image takes tens of seconds)
+    timeout_s: float = Field(default=DEFAULT_DEBUG_TIMEOUT_S, gt=0)
+
+
 PARAM_MODELS: dict[str, type[BaseModel]] = {
     "serial": SerialParams,
     "rs485": SerialParams,
     "rs485_monitor": SerialParams,
+    "debug": DebugParams,
 }
 
 

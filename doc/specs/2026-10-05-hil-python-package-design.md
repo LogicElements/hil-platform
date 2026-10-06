@@ -107,6 +107,7 @@ Pravidla:
 - Odkaz na prostředek má tvar `<zařízení>.<kanál>`. Názvy kanálů určuje ovladač: relé `0` až `31`, vstupy `modbus_di` `0` až `count-1`, vstupy Quido `in0` a `in1`, AD3 `awg1`, `awg2`, `ch1`, `ch2`, porty `serial_ports` podle klíčů v `ports`. Validace: zařízení existuje, ovladač kanál poskytuje, kanál je v rozsahu, žádný prostředek není použit dvakrát.
 - Svorka musí být v profilu a mít v něm uvedený druh. `kind` ve stanovišti se musí s profilem shodovat.
 - Sériový port lze zadat cestou (`/dev/serial/by-id/...`, `COM7`), pyserial URL (`loop://`) nebo sériovým číslem FTDI a číslem rozhraní (`{serial, interface}`). Poslední způsob funguje na Linuxu i Windows a nezávisí na pořadí připojení.
+- `modbus_rtu_bus` má buď vlastní `port` (zadaný stejně jako porty `serial_ports`), nebo `link: <zařízení>.<kanál>`, odkaz na sériový port jiného zařízení (kanál FT4232H, port `sim_serial`). Druhý způsob používají testy ovladačů proti simulovanému slave.
 - `analog_out` má buď `direct` (rychlý kanál bez relé), nebo `select` + `connect`. Relé `select` v klidu (NC) vybírá generátor 1, sepnuté (NO) generátor 2. Relé `connect` připojuje vstup DUT, rozepnuté znamená bez signálu.
 - `fault_path` má relé `series` v cestě vodiče a volitelně `short` pro zkrat na zem. Zkrat svorky označené `carries_power: true` je povolen jen s `allow_short: true` (zdroje HDR nemají proudové omezení).
 - Volitelné časy: `settle_s` u `analog_in` (doba ustálení multiplexeru, výchozí 0,02 s).
@@ -166,16 +167,16 @@ class WaveshareRelay32(Device):
 | `SerialLink` | `open(params, timeout) -> serial.Serial`, `params` je `SerialParams` (parametry linky z `dut.yaml`) | `serial_ports`, sim |
 | `AwgChannel` | `sine`, `square`, `dc`, `arbitrary`, `start()`, `stop()` | Analog Discovery 3, sim |
 | `ScopeChannel` | `acquire(rate, n) -> numpy.ndarray` | Analog Discovery 3, sim |
-| `DebugProbe` | `flash(image, target)`, `reset()`, `halt()` | OpenOCD, sim |
+| `DebugProbe` | `flash(image, target, timeout_s, abort_after_s)`, `reset(target, timeout_s)`, `halt(target, timeout_s)`, vrací `ProbeResult` (výstup, návratový kód, doba, přerušeno, timeout); signál výstup uloží a chybu převede na `DeviceError` | OpenOCD, sim |
 
 ### 4.3 Ovladače v1
 
 | Ovladač | Popis |
 |---|---|
-| `modbus_rtu_bus` | sdílený Modbus RTU master z `hil.comm`, zámek, nastavitelná minimální mezera mezi rámci (Quido odpovídá nejdřív za 2 ms) |
-| `waveshare_relay32` | 32 coilů. Adresa prvního coilu a funkční kódy jsou v konfiguraci s výchozí hodnotou, protože mapa registrů není ověřena na hardwaru |
-| `quido_rs_2_32` | 32 coilů a 2 vstupy, modul musí být přepnutý z protokolu Spinel do Modbus RTU. Mapa coilů neověřena, řeší se stejně jako u Waveshare |
-| `modbus_di` | obecné čtení vstupů: druh (discrete inputs nebo input registry), adresa prvního vstupu, počet, inverze |
+| `modbus_rtu_bus` | sdílený Modbus RTU master z `hil.comm`, zámek, minimální mezera mezi rámci `min_gap_s` (výchozí větší z 3,5 znaku a 2 ms, Quido odpovídá nejdřív za 2 ms). Odpověď na zápis (FC5, 6, 15, 16) se kontroluje proti požadavku |
+| `waveshare_relay32` | 32 coilů. Adresa prvního coilu a funkční kódy jsou v konfiguraci s výchozí hodnotou (coily 0 až 31, zápis FC05/FC15, čtení FC01), protože mapa registrů není ověřena na hardwaru |
+| `quido_rs_2_32` | 32 coilů a 2 vstupy (výchozí coily 0 až 31, vstupy jako discrete inputs 0 a 1), modul musí být přepnutý z protokolu Spinel do Modbus RTU. Mapa neověřena, řeší se stejně jako u Waveshare |
+| `modbus_di` | obecné čtení vstupů: zdroj (discrete inputs, nebo input registry po 16 vstupech od nejnižšího bitu), adresa prvního vstupu, počet, inverze. Všechny vstupy se čtou jedním požadavkem |
 | `analog_discovery_3` | vazba `ctypes` na `libdwf.so` (Linux) nebo `dwf.dll` (Windows), knihovna se načte až v `open()`. Jeden handle pro 2 kanály AWG a 2 kanály scope |
 | `serial_ports` | pyserial. Na Linuxu nastaví u FTDI latency timer na 1 ms přes sysfs. Na Windows se hodnota nekontroluje, jen se upozorní v logu (nastavuje se ve Správci zařízení) |
 | `openocd` | spouští `openocd` / `openocd.exe` (PATH nebo cesta v konfiguraci) s timeoutem, výstup ukládá do záznamů |
@@ -187,6 +188,7 @@ class WaveshareRelay32(Device):
 - `sim_di` může zrcadlit sim relé (`mirror: {0: rel1.2}`), takže lze vytvořit smyčku stimul a odezva.
 - `sim_serial` vytváří propojené virtuální páry portů (např. aktivní RS-485 a monitor, konzole a strana DUT ovladatelná z testu).
 - `sim_ad3` vrací průběh odpovídající nastavení v konfiguraci (konstanta nebo sinus se šumem).
+- `sim_probe` zaznamenává volání `flash`, `reset` a `halt` a umí nasimulovat selhání.
 - Vestavěné stanoviště `sim` (`src/hil/stations/sim.yaml`, distribuuje se s balíčkem) zapojuje všechny svorky profilu `standard-v1` na sim ovladače. Repozitář DUT tak může spustit své testy naprázdno volbou `--hil-station sim`.
 
 ## 5. HAL bloky a signály DUT
@@ -234,7 +236,12 @@ Bloky `hil.power`, `hil.digital`, `hil.faults`, `hil.comm`, `hil.debug`, `hil.an
 
 ### 5.3 Bezpečný stav
 
-Napájení DUT vypnuto, všechny poruchy obnoveny, generátory zastaveny a odpojeny, stimuly vypnuty, ostatní relé rozepnuta. Nastavuje se při otevření stanoviště, po každém testu, při chybě, při ukončení procesu (`atexit`, SIGINT a SIGTERM na Linuxu, SIGINT a SIGBREAK na Windows) a příkazem `hil safe`.
+Napájení DUT vypnuto, všechny poruchy obnoveny, generátory zastaveny a odpojeny, stimuly vypnuty, ostatní relé rozepnuta. Nastavuje se při otevření stanoviště, po každém testu, při chybě, při ukončení procesu a příkazem `hil safe`.
+
+Ukončení procesu:
+- Signály SIGINT, SIGTERM a SIGHUP na Linuxu, SIGINT a SIGBREAK na Windows. Obsluha signálu nekomunikuje se zařízeními, jen vyhodí výjimku `TerminationRequested`, podtřídu `KeyboardInterrupt` (pytest bere `SystemExit` v testu jako selhání testu a pokračoval by dalším testem, `KeyboardInterrupt` ukončí session a spustí úklid fixtures). Rozpracovaná transakce na sběrnici se přeruší a sběrnice zůstane potichu až do konce jejího timeoutu, aby se pozdní odpověď modulu nesrazila s vypnutím napájení; zásobník se odvine a úklid (`Station.close()`, teardown pytestu) nastaví úplný bezpečný stav. Obsluha v rámci sběrnice by mohla vložit vlastní rámec doprostřed rozeslaného rámce.
+- Další signál během ukončování nebo během `Station.close()` se jen zaloguje, aby nepřerušil nastavování bezpečného stavu. Signál, který je ignorovaný (SIGHUP pod `nohup`), zůstane ignorovaný.
+- `atexit` je záloha pro případ, že úklid neproběhl. Vypíná napájení a zámek sběrnice čeká s timeoutem.
 
 ## 6. pytest plugin
 
@@ -272,7 +279,7 @@ Razítka jsou relativní ke startu testu, první řádek souboru nese čas start
 | Příkaz | Účel |
 |---|---|
 | `hil check --station S [--dut D] [--probe]` | validace konfigurace; s `--probe` otevře zařízení a ověří jejich dostupnost |
-| `hil safe --station S` | nastaví bezpečný stav, na Linuxu ho volá služba systemd při startu PC (NF-03) |
+| `hil safe --station S` | nastaví bezpečný stav, na Linuxu ho volá služba systemd při startu PC (NF-03). Pracuje best-effort: otevře zařízení, která jdou, nastaví na nich bezpečný stav a chyby ostatních vypíše s návratovým kódem 3 |
 | `hil info --station S` | vypíše zařízení, svorky a bloky |
 
 ## 9. Struktura repozitáře
@@ -317,7 +324,7 @@ doc/software/               # user documentation
 ## 11. Nasazení
 
 Popíše se v `doc/software/`:
-- **Linux (Debian, Raspberry Pi OS):** pravidla udev (skupina `dialout`, přístup k AD3), služba systemd volající `hil safe` při startu, instalace WaveForms a Adept runtime (ARM64 podle návodu Digilentu), OpenOCD z distribuce.
+- **Linux (Debian, Raspberry Pi OS):** pravidla udev (skupina `dialout`, přístup k AD3, latency timer FTDI), služba systemd typu oneshot volající `hil safe` při startu, instalace WaveForms a Adept runtime (ARM64 podle návodu Digilentu), OpenOCD z distribuce.
 - **Windows (vývoj):** ovladač FTDI VCP a nastavení latency timeru, instalace WaveForms, OpenOCD v PATH.
 
 ## 12. Pokrytí požadavků

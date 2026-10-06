@@ -1,4 +1,5 @@
 import json
+import sys
 
 import pytest
 
@@ -312,3 +313,29 @@ def test_comm_state_does_not_leak_between_tests(pytester):
     second = pytester.path / "out" / artifact_dir_name(f"{module}::test_2_starts_clean")
     assert (first / "rs485-bus_monitor.jsonl").exists()
     assert not (second / "rs485-bus_monitor.jsonl").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+def test_sigterm_ends_session_with_safe_state(pytester):
+    pytester.makefile(".yaml", dut=DUT)
+    pytester.makepyfile(
+        """
+        import os
+        import signal
+
+        def test_1_terminated(dut):
+            dut.supply.on()
+            os.kill(os.getpid(), signal.SIGTERM)
+
+        def test_2_not_run(dut):
+            pass
+        """
+    )
+    result = pytester.runpytest_subprocess(
+        "--hil-station", "sim", "--hil-dut", "dut.yaml", "--hil-out", "out", "-v"
+    )
+    assert result.ret == pytest.ExitCode.INTERRUPTED
+    assert "test_2_not_run PASSED" not in result.stdout.str()
+    events = next((pytester.path / "out").glob("*test_1_terminated*/events.jsonl"))
+    actions = [json.loads(line).get("action") for line in events.read_text().splitlines()]
+    assert "safe_state" in actions

@@ -1,0 +1,7 @@
+# HIL station (Linux): serial ports for the dialout group and FTDI latency timer 1 ms.
+# Install: sudo cp 99-hil.rules /etc/udev/rules.d/ && sudo udevadm control --reload
+#          && sudo udevadm trigger
+# ST-Link rules come with the openocd package (60-openocd.rules), Analog Discovery rules
+# with the Adept runtime.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", GROUP="dialout", MODE="0660"
+ACTION=="add", SUBSYSTEM=="usb-serial", DRIVER=="ftdi_sio", ATTR{latency_timer}="1"

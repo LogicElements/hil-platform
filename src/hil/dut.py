@@ -2,9 +2,9 @@
 
 from typing import Any
 
-from hil.config.models import DutConfig, SerialParams, signal_params
+from hil.config.models import DebugParams, DutConfig, SerialParams, signal_params
 from hil.errors import SignalUnavailable
-from hil.signals import PortSignal, Signal
+from hil.signals import DebugSignal, PortSignal, Signal
 from hil.station import Station
 
 
@@ -37,6 +37,11 @@ class Dut:
             if not isinstance(params, SerialParams):
                 raise TypeError(f"no line parameters for {signal.kind} signal {name!r}")
             signal.configure(name, params)
+        elif isinstance(signal, DebugSignal):
+            debug = signal_params(signal.kind, spec.params())
+            if not isinstance(debug, DebugParams):
+                raise TypeError(f"no debug parameters for signal {name!r}")
+            signal.configure(name, debug)
         return signal
 
     def params(self, name: str) -> dict[str, Any]:

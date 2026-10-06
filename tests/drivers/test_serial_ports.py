@@ -7,7 +7,7 @@ import pytest
 
 from hil.config.models import DeviceConfig, SerialParams
 from hil.drivers import create_device
-from hil.drivers.serial_ports import ensure_low_latency, find_ftdi_port
+from hil.drivers.serial_ports import FtdiPort, ensure_low_latency, find_ftdi_port, resolve_port
 from hil.errors import ConfigError, DeviceError, DeviceNotFound
 from hil.resources import SerialLink
 
@@ -198,3 +198,51 @@ def test_open_comports_failure(monkeypatch):
     )
     with pytest.raises(DeviceError, match="cannot list serial ports"):
         device.open()
+
+
+def test_find_ftdi_single_port_chip_windows():
+    ports = [SimpleNamespace(device="COM3", serial_number="A10K", location=None)]
+    assert find_ftdi_port("A10K", 0, ports, platform="win32") == "COM3"
+    with pytest.raises(DeviceNotFound):
+        find_ftdi_port("A10K", 1, ports, platform="win32")
+
+
+def test_find_ftdi_prefers_channel_suffix_windows():
+    ports = [
+        SimpleNamespace(device="COM3", serial_number="FT4ABC", location=None),
+        SimpleNamespace(device="COM5", serial_number="FT4ABCA", location=None),
+    ]
+    assert find_ftdi_port("FT4ABC", 0, ports, platform="win32") == "COM5"
+
+
+def test_resolve_port(monkeypatch, tmp_path):
+    import hil.drivers.serial_ports
+
+    monkeypatch.setattr(hil.drivers.serial_ports.sys, "platform", "linux")
+
+    def comports():
+        return PORTS
+
+    assert resolve_port("bus", "port", "loop://", comports) == "loop://"
+    ftdi = FtdiPort(serial="FT4ABC", interface=2)
+    assert resolve_port("bus", "port", ftdi, comports) == "/dev/ttyUSB2"
+    with pytest.raises(DeviceNotFound, match="device 'bus': serial port 'port' not found"):
+        resolve_port("bus", "port", str(tmp_path / "missing"), comports)
+
+
+def test_low_latency_checked_once_per_port(monkeypatch):
+    import hil.drivers.serial_ports
+
+    calls = []
+    monkeypatch.setattr(hil.drivers.serial_ports, "ensure_low_latency", calls.append)
+    device = make(A="loop://")
+    device.open()
+    for _ in range(3):
+        device.resource("A").open(SerialParams(), timeout=0.01).close()
+    assert calls == ["loop://"]
+    device.close()
+    device.open()
+    device.resource("A").open(SerialParams(), timeout=0.01).close()
+    assert calls == ["loop://", "loop://"]
+    assert device.device_path("A") == "loop://"
+    device.close()

@@ -57,8 +57,8 @@ class Recorder:
     def _append(self, filename: str, line: str, jsonl: bool) -> None:
         """Append ``line``; the first line of a new file names the start of the test.
 
-        The lock is taken with a timeout: a termination signal handler may call this
-        while the interrupted main thread holds the lock, and waiting forever would
+        The lock is taken with a timeout: the atexit handler may call this
+        while another thread holds the lock, and waiting forever would
         hang the emergency switch-off. A record is dropped instead of deadlocking.
         """
         if not self._lock.acquire(timeout=_LOCK_TIMEOUT_S):

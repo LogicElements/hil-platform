@@ -1,5 +1,6 @@
 """RS-485 terminals: active port (``rs485``) and passive monitor (``rs485_monitor``)."""
 
+import logging
 import random
 import threading
 import time
@@ -13,10 +14,13 @@ from hil.comm.faults import FaultKind, corrupt_crc, extend, truncate, wrong_pari
 from hil.comm.framing import Frame, FrameSplitter
 from hil.comm.master import ModbusMaster
 from hil.comm.slave import ModbusDataStore, ModbusSlave
+from hil.config.models import SerialParams
 from hil.errors import DeviceError, OperationNotAllowed, ResourceConflict, WaitTimeout
 from hil.recording import Recorder
 from hil.resources import SerialLink
 from hil.signals.port import PortSignal
+
+log = logging.getLogger("hil.signals.rs485")
 
 
 class Rs485Signal(PortSignal):
@@ -27,6 +31,8 @@ class Rs485Signal(PortSignal):
     def __init__(self, name: str, recorder: Recorder, link: SerialLink) -> None:
         super().__init__(name, recorder, link)
         self._slave: ModbusSlave | None = None
+        self._master: ModbusMaster | None = None
+        self._master_key: tuple[Serial, SerialParams] | None = None
 
     def _check_no_slave(self, what: str) -> None:
         if self._slave is not None:
@@ -37,11 +43,20 @@ class Rs485Signal(PortSignal):
 
     @property
     def modbus(self) -> ModbusMaster:
-        """Modbus RTU master on this port."""
+        """Modbus RTU master on this port; the same object while port and parameters stay."""
         self._check_no_slave("the Modbus master")
-        return ModbusMaster(
-            self.port, self.params.timeout_s, echo=self.params.echo, on_exchange=self._exchange
-        )
+        port = self.port
+        key = (port, self.params)
+        if self._master is None or self._master_key != key:
+            self._master = ModbusMaster(
+                port,
+                self.params.timeout_s,
+                echo=self.params.echo,
+                on_exchange=self._exchange,
+                min_gap_s=self.params.gap_s(),
+            )
+            self._master_key = key
+        return self._master
 
     def _exchange(self, request: bytes, response: bytes | None) -> None:
         self._event(
@@ -100,21 +115,42 @@ class Rs485Signal(PortSignal):
         else:
             raise ValueError(f"unknown fault kind {kind!r}")
         if kind == "bad_parity":
-            port = self.port
-            original = port.parity
-            port.parity = wrong_parity(original)
-            try:
-                self._send(payload)
-                # flush() on Windows returns before the chip FIFO is empty; restoring the
-                # parity earlier would send the tail with the right parity
-                # (verify on hardware in plan 3)
-                time.sleep(len(payload) * self.params.char_time_s() + 0.002)
-            finally:
-                port.parity = original
+            self._send_with_parity(payload)
         else:
             self._send(payload)
         self._event("inject", kind=kind, data=payload.hex(" "))
         return payload
+
+    def _send_with_parity(self, payload: bytes) -> None:
+        """Send ``payload`` with the wrong parity, then restore the port's parity."""
+        port = self.port
+        original = port.parity
+        parity = wrong_parity(original)
+        try:
+            port.parity = parity
+        except (SerialException, ValueError) as exc:
+            raise DeviceError(f"{self.alias}: cannot switch parity to {parity}: {exc}") from exc
+        try:
+            self._send(payload)
+            # flush() on Windows returns before the chip FIFO is empty; restoring the parity
+            # earlier would send the tail with the right parity. The wrong parity can add
+            # a bit to every character, so its character time counts.
+            char_s = self.params.model_copy(update={"parity": parity}).char_time_s()
+            time.sleep(len(payload) * char_s + 0.002)
+        finally:
+            try:
+                port.parity = original
+            except (SerialException, ValueError) as exc:
+                log.error(
+                    "%s: cannot restore parity %s (%s), closing the port",
+                    self.alias,
+                    original,
+                    exc,
+                )
+                try:
+                    self.close()
+                except Exception as close_exc:
+                    log.warning("%s: closing the port failed: %s", self.alias, close_exc)
 
     def flood(self, duration_s: float, chunk: int = 64, seed: int | None = None) -> int:
         """Send random bytes at line rate for ``duration_s``; return the number of bytes."""

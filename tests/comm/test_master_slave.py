@@ -13,7 +13,7 @@ from hil.comm.master import ModbusExceptionResponse, ModbusMaster, response_leng
 from hil.comm.slave import ModbusDataStore, ModbusSlave, request_length
 from hil.config.models import DeviceConfig
 from hil.drivers import create_device
-from hil.errors import DeviceError, DeviceTimeout
+from hil.errors import DeviceError, DeviceTimeout, TerminationRequested
 
 
 @pytest.fixture
@@ -518,3 +518,80 @@ def test_master_port_error_is_device_error():
     with pytest.raises(DeviceError, match="port gone") as info:
         ModbusMaster(port, timeout_s=0.1).read_holding_registers(1, 0, 1)
     assert isinstance(info.value.__cause__, serial.SerialException)
+
+
+def test_min_gap_between_requests(bus, slave):
+    with bus.endpoint("master") as port:
+        master = ModbusMaster(port, timeout_s=0.3, min_gap_s=0.05)
+        master.read_holding_registers(1, 0, 1)
+        start = time.perf_counter()
+        master.read_holding_registers(1, 0, 1)
+        assert time.perf_counter() - start >= 0.045
+
+
+def test_min_gap_must_not_be_negative(bus):
+    with bus.endpoint("master") as port, pytest.raises(ValueError, match="min_gap_s"):
+        ModbusMaster(port, timeout_s=0.3, min_gap_s=-1)
+
+
+def test_write_response_must_repeat_request(master, slave):
+    slave.respond = lambda frame: modbus.with_crc(frame[:4] + b"\x00\x00")
+    with pytest.raises(DeviceError, match="does not repeat the request"):
+        master.write_register(1, 1, 99)
+
+
+def test_multiple_write_response_must_match_start_and_count(master, slave):
+    slave.respond = lambda frame: modbus.with_crc(frame[:2] + b"\x00\x00\x00\x01")
+    with pytest.raises(DeviceError, match="does not match the start and count"):
+        master.write_coils(1, 0, [True, False])
+
+
+class InterruptedPort(FakePort):
+    """Port whose first read is interrupted by a termination signal."""
+
+    def __init__(self, reply):
+        super().__init__(reply)
+        self.interrupt = True
+        self.write_times = []
+
+    def write(self, data):
+        self.write_times.append(time.perf_counter())
+        return super().write(data)
+
+    def read(self, size=1):
+        if self.interrupt:
+            self.interrupt = False
+            raise TerminationRequested("SIGTERM")
+        return super().read(size)
+
+
+def test_interrupted_exchange_keeps_bus_quiet_until_its_deadline():
+    response = modbus.with_crc(bytes([1, 3, 2, 0, 9]))
+    port = InterruptedPort(response)
+    master = ModbusMaster(port, timeout_s=0.3, min_gap_s=0.01)
+    with pytest.raises(TerminationRequested):
+        master.read_holding_registers(1, 0, 1)
+    assert master.read_holding_registers(1, 0, 1) == [9]
+    assert port.write_times[1] - port.write_times[0] >= 0.29
+
+
+def test_completed_exchange_waits_only_min_gap():
+    response = modbus.with_crc(bytes([1, 3, 2, 0, 9]))
+    port = InterruptedPort(response + response)
+    port.interrupt = False
+    master = ModbusMaster(port, timeout_s=0.3, min_gap_s=0.01)
+    master.read_holding_registers(1, 0, 1)
+    master.read_holding_registers(1, 0, 1)
+    assert port.write_times[1] - port.write_times[0] < 0.2
+
+
+def test_exception_response_waits_only_min_gap():
+    exception = modbus.with_crc(bytes([1, 0x83, 2]))
+    response = modbus.with_crc(bytes([1, 3, 2, 0, 9]))
+    port = InterruptedPort(exception + response)
+    port.interrupt = False
+    master = ModbusMaster(port, timeout_s=0.3, min_gap_s=0.01)
+    with pytest.raises(ModbusExceptionResponse):
+        master.read_holding_registers(1, 0, 1)
+    assert master.read_holding_registers(1, 0, 1) == [9]
+    assert port.write_times[1] - port.write_times[0] < 0.2

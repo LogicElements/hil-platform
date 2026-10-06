@@ -156,3 +156,10 @@ class SerialSignal(PortSignal):
                 port.reset_input_buffer()
             except Exception as exc:
                 log.warning("serial port %s: cannot reset input buffer: %s", self.alias, exc)
+        if self._error is not None:
+            # the reader stopped on a port failure; reopen the port on next use
+            log.info("serial port %s failed earlier, closing it", self.alias)
+            try:
+                self.close()
+            except Exception as exc:
+                log.warning("serial port %s: closing failed: %s", self.alias, exc)

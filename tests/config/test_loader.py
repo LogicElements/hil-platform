@@ -175,3 +175,10 @@ def test_dut_duplicate_port_terminal(tmp_path):
         ConfigError, match=r"signals 'console' and 'other' use the same serial terminal 'CON'"
     ):
         load_dut(write(tmp_path, "dut.yaml", text), profile)
+
+
+def test_dut_debug_signal_needs_target(tmp_path):
+    profile = load_profile("standard-v1")
+    text = DUT + "  firmware: {terminal: SWD}\n"
+    with pytest.raises(ConfigError, match=r"signal 'firmware': target: Field required"):
+        load_dut(write(tmp_path, "dut.yaml", text), profile)

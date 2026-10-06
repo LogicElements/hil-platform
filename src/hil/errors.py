@@ -35,3 +35,16 @@ class OperationNotAllowed(HilError):
 
 class WaitTimeout(HilError, TimeoutError):
     """An awaited state of the DUT was not reached in time."""
+
+
+class TerminationRequested(KeyboardInterrupt):
+    """A termination signal arrived; raised in the main thread so that cleanup runs.
+
+    A subclass of ``KeyboardInterrupt``: pytest ends the session and tears the fixtures
+    down as after Ctrl+C, while a ``SystemExit`` raised in a test would only fail that
+    test and the session would go on.
+    """
+
+    def __init__(self, signame: str) -> None:
+        super().__init__(signame)
+        self.signame = signame

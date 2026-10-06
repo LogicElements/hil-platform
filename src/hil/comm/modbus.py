@@ -142,13 +142,26 @@ class ModbusFrame:
         }
 
 
-def decode(frame: bytes) -> ModbusFrame:
+def _answers_bit_read(
+    previous: ModbusFrame | None, address: int, function: int, data: bytes
+) -> bool:
+    """True when ``data`` is the response to the bit read ``previous``."""
+    if previous is None or previous.kind != "request" or function not in BIT_READS:
+        return False
+    if (previous.address, previous.function) != (address, function):
+        return False
+    count = previous.fields.get("count")
+    return isinstance(count, int) and (count + 7) // 8 == data[0] == len(data) - 1
+
+
+def decode(frame: bytes, previous: ModbusFrame | None = None) -> ModbusFrame:
     """Decode a frame with a valid CRC.
 
     Requests and responses are told apart by their length. A single write (functions 5
     and 6) is answered by an identical echo, so both are reported as ``request``. A
-    bit-read response with three data bytes has the length of a request and is
-    reported as a request.
+    bit-read response with three data bytes has the length of a request; it is reported
+    as a response when ``previous`` (the frame seen before it) is the matching request,
+    otherwise as a request.
     """
     if not crc_ok(frame):
         raise ValueError(f"bad CRC in frame {frame.hex(' ')}")
@@ -158,7 +171,7 @@ def decode(frame: bytes) -> ModbusFrame:
         if len(data) == 1:
             return ModbusFrame(address, function, "exception", {"code": data[0]})
     elif function in BIT_READS | REGISTER_READS:
-        if len(data) == 4:
+        if len(data) == 4 and not _answers_bit_read(previous, address, function, data):
             start, count = struct.unpack(">HH", data)
             return ModbusFrame(address, function, "request", {"start": start, "count": count})
         if data and data[0] == len(data) - 1:

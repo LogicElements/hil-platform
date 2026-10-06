@@ -150,3 +150,17 @@ def test_write_failure_is_device_error(console, monkeypatch):
     with pytest.raises(DeviceError, match="write failed") as info:
         console.write("x")
     assert isinstance(info.value.__cause__, serial.SerialException)
+
+
+def test_safe_state_reopens_failed_port(console, ser):
+    ser.close()
+    time.sleep(0.05)
+    with pytest.raises(DeviceError, match="serial port failed"):
+        console.expect("anything", timeout=0.2)
+    ser.open()
+    console.safe_state()
+    assert not console.is_open
+    with ser.endpoint("dut_con") as side:
+        console.open()
+        side.write(b"back\n")
+        console.expect("back", timeout=1)

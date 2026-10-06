@@ -28,6 +28,8 @@ hil info --station sim
 - [Návrh Python balíčku hil](doc/specs/2026-10-05-hil-python-package-design.md)
 - [Konfigurace stanoviště a DUT](doc/software/konfigurace.md)
 - [Psaní a spouštění testů](doc/software/testy.md)
+- [Nasazení stanoviště](doc/software/nasazeni.md)
+- [HW testy stanoviště](doc/software/hw-testy.md)
 
 ## Licence
 

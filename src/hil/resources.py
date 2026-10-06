@@ -2,7 +2,8 @@
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol
+from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
 
 import serial
 
@@ -95,3 +96,39 @@ def port_settings(params: SerialParams) -> dict[str, Any]:
         "parity": params.parity,
         "stopbits": params.stopbits,
     }
+
+
+@dataclass(frozen=True)
+class ProbeResult:
+    """Outcome of one operation of a debug probe (e.g. one OpenOCD run)."""
+
+    action: str
+    output: str
+    # exit code of the tool; None when it was stopped (interrupted or timed out)
+    returncode: int | None
+    duration_s: float
+    interrupted: bool = False
+    timed_out: bool = False
+
+    @property
+    def ok(self) -> bool:
+        return self.returncode == 0
+
+
+@runtime_checkable
+class DebugProbe(Protocol):
+    """A device that flashes and controls the microcontroller of the DUT.
+
+    Failures of the tool are returned in ``ProbeResult``, so that its output can be
+    saved; only a missing tool or a closed device raise.
+    """
+
+    name: str
+
+    def flash(
+        self, image: Path, target: str, timeout_s: float, abort_after_s: float | None = None
+    ) -> ProbeResult: ...
+
+    def reset(self, target: str, timeout_s: float) -> ProbeResult: ...
+
+    def halt(self, target: str, timeout_s: float) -> ProbeResult: ...

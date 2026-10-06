@@ -1,7 +1,9 @@
 """Modbus RTU master over a serial port."""
 
 import logging
+import math
 import struct
+import time
 from collections.abc import Callable, Sequence
 
 from serial import Serial, SerialException
@@ -48,11 +50,32 @@ def response_length(function: int, received: bytes) -> int | None:
     return 8
 
 
+def check_write_response(request: bytes, response: bytes) -> None:
+    """A write response repeats the request (functions 5, 6) or its start and count (15, 16)."""
+    function = request[1]
+    if function in (modbus.WRITE_SINGLE_COIL, modbus.WRITE_SINGLE_REGISTER):
+        if response != request:
+            raise DeviceError(
+                f"device {request[0]}: write response {response.hex(' ')} does not repeat "
+                f"the request {request.hex(' ')}"
+            )
+    elif (
+        function in (modbus.WRITE_MULTIPLE_COILS, modbus.WRITE_MULTIPLE_REGISTERS)
+        and response[2:6] != request[2:6]
+    ):
+        raise DeviceError(
+            f"device {request[0]}: write response {response.hex(' ')} does not match "
+            f"the start and count of the request {request.hex(' ')}"
+        )
+
+
 class ModbusMaster:
     """Blocking Modbus RTU master.
 
     The port must have a short read timeout (tens of milliseconds); ``timeout_s`` bounds
-    the wait for a whole response.
+    the wait for a whole response. ``min_gap_s`` is the silence kept on the bus between
+    the end of one exchange and the next request (3.5 characters by the standard; some
+    devices need more time before they listen again).
     """
 
     def __init__(
@@ -61,18 +84,32 @@ class ModbusMaster:
         timeout_s: float = 1.0,
         echo: bool = False,
         on_exchange: Exchange | None = None,
+        min_gap_s: float = 0.0,
     ) -> None:
         if getattr(port, "timeout", 1) in (None, 0):
             raise ValueError("the port needs a finite non-zero read timeout")
+        if min_gap_s < 0:
+            raise ValueError("min_gap_s must not be negative")
         self.port = port
         self.timeout_s = timeout_s
         self.echo = echo
         self.on_exchange = on_exchange
+        self.min_gap_s = min_gap_s
         self._received = b""
+        self._last_traffic = -math.inf
+
+    def _wait_quiet(self) -> None:
+        """Keep the bus silent for ``min_gap_s`` after the previous exchange."""
+        remaining = self._last_traffic + self.min_gap_s - clock.now()
+        if remaining > 0:
+            time.sleep(remaining)
 
     def transact(self, frame: bytes) -> bytes | None:
         """Send ``frame`` and return the validated response (None for a broadcast)."""
         self._received = b""
+        self._wait_quiet()
+        deadline: float | None = None
+        completed = False
         try:
             self.port.reset_input_buffer()
             self.port.write(frame)
@@ -83,12 +120,28 @@ class ModbusMaster:
                 if echoed != frame:
                     raise DeviceError(f"echo differs from the request: {echoed.hex(' ')}")
             if frame[0] == 0:
+                completed = True
                 return None
             self._received = b""
-            return self._read_response(frame, deadline)
+            response = self._read_response(frame, deadline)
+            completed = True
+            check_write_response(frame, response)
+            return response
         except SerialException as exc:
+            completed = True
             raise DeviceError(f"device {frame[0]}: serial port failed: {exc}") from exc
+        except Exception:
+            # the master ended the exchange itself (timeout, invalid or exception response)
+            completed = True
+            raise
         finally:
+            now = clock.now()
+            if completed or deadline is None:
+                self._last_traffic = now
+            else:
+                # an interrupted exchange (e.g. by a termination signal) may still get its
+                # late response; keep the bus quiet until its response window has passed
+                self._last_traffic = max(now, deadline)
             if self.on_exchange is not None:
                 try:
                     self.on_exchange(frame, self._received or None)

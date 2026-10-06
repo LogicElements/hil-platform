@@ -1,11 +1,19 @@
 import signal
+import sys
 import time
 
 import pytest
 
 from hil.drivers import register_driver
 from hil.drivers.base import Device
-from hil.errors import ConfigError, DeviceError, DeviceNotFound, SignalUnavailable
+from hil.drivers.sim.relay import SimRelay
+from hil.errors import (
+    ConfigError,
+    DeviceError,
+    DeviceNotFound,
+    SignalUnavailable,
+    TerminationRequested,
+)
 from hil.signals import FaultPath, PowerSignal, SenseSignal, SwitchSignal
 from hil.station import Station
 
@@ -120,18 +128,79 @@ def test_open_failure_closes_opened_devices(tmp_path):
     assert station._opened == []
 
 
-def test_emergency_handler_switches_power_off(station):
+posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals")
+
+
+def test_termination_signal_only_interrupts(station):
     previous = signal.getsignal(signal.SIGINT)
     station.install_emergency_handlers()
+    station.power.on("PWR")
+    handler = signal.getsignal(signal.SIGINT)
+    with pytest.raises(TerminationRequested) as info:
+        handler(signal.SIGINT, None)
+    assert isinstance(info.value, KeyboardInterrupt)
+    assert info.value.signame == "SIGINT"
+    # no device I/O in the handler: the interrupted thread may be inside a bus frame
+    assert station.devices["rel1"].states[0]
+    assert handler(signal.SIGINT, None) is None  # a repeated signal is only logged
+    station.close()
+    assert not station.devices["rel1"].states[0]
+    assert signal.getsignal(signal.SIGINT) is previous
+
+
+@posix_only
+def test_sigterm_interrupts(station):
+    station.install_emergency_handlers()
+    with pytest.raises(TerminationRequested, match="SIGTERM"):
+        signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
+
+
+@posix_only
+def test_ignored_signal_stays_ignored(station):
+    previous = signal.signal(signal.SIGHUP, signal.SIG_IGN)
     try:
-        station.power.on("PWR")
-        handler = signal.getsignal(signal.SIGINT)
-        with pytest.raises(KeyboardInterrupt):
-            handler(signal.SIGINT, None)
-        assert not station.devices["rel1"].states[0]
+        station.install_emergency_handlers()
+        assert signal.getsignal(signal.SIGHUP) == signal.SIG_IGN
     finally:
         station.close()
-    assert signal.getsignal(signal.SIGINT) is previous
+        signal.signal(signal.SIGHUP, previous)
+
+
+@register_driver("test_signal_in_safe_state")
+class _SignalInSafeState(Device):
+    """Delivers SIGINT to the station's handler while the safe state is being set."""
+
+    armed = False
+
+    def safe_state(self):
+        if self.armed:
+            signal.getsignal(signal.SIGINT)(signal.SIGINT, None)
+
+
+def test_signal_during_close_does_not_abort_safe_state(tmp_path):
+    text = STATION.replace(
+        "terminals:\n", "  sig: {driver: test_signal_in_safe_state}\nterminals:\n"
+    )
+    station = make(tmp_path, text)
+    station.open()
+    station.install_emergency_handlers()
+    station.devices["sig"].armed = True
+    station.power.on("PWR")
+    station.close()
+    assert not station.devices["rel1"].states[0]
+
+
+def test_at_exit_switches_power_off_despite_busy_recorder(station):
+    station.power.on("PWR")
+    station.recorder._lock.acquire()
+    try:
+        start = time.perf_counter()
+        station._at_exit()
+        elapsed = time.perf_counter() - start
+    finally:
+        station.recorder._lock.release()
+    assert elapsed < 2.0
+    assert not station.devices["rel1"].states[0]
 
 
 def test_open_failure_keeps_original_exception(tmp_path):
@@ -150,23 +219,6 @@ def test_open_failure_keeps_original_exception(tmp_path):
         station.open()
     assert not station.devices["rel1"].is_open
     assert station._opened == []
-
-
-def test_emergency_handler_does_not_deadlock_on_busy_recorder(station):
-    station.install_emergency_handlers()
-    station.power.on("PWR")
-    handler = signal.getsignal(signal.SIGINT)
-    station.recorder._lock.acquire()
-    try:
-        start = time.perf_counter()
-        with pytest.raises(KeyboardInterrupt):
-            handler(signal.SIGINT, None)
-        elapsed = time.perf_counter() - start
-    finally:
-        station.recorder._lock.release()
-    assert elapsed < 2.0
-    assert not station.devices["rel1"].states[0]
-    assert not station.power["PWR"].is_on
 
 
 def test_blocks_reject_typo_in_terminal_name(station):
@@ -197,3 +249,56 @@ def test_bind_error_names_the_station_file(tmp_path):
     text = STATION.replace("terminals:\n", "  bad: {driver: test_bad_bind}\nterminals:\n")
     with pytest.raises(ConfigError, match=r"station\.yaml: depends on a missing device"):
         make(tmp_path, text)
+
+
+def test_debug_terminal_needs_a_probe(tmp_path):
+    with pytest.raises(ConfigError, match="device 'rel1' is not a debug probe"):
+        make(tmp_path, STATION + "  SWD: {kind: debug, probe: rel1}\n")
+
+
+def test_debug_block(tmp_path):
+    text = STATION.replace("terminals:\n", "  probe: {driver: sim_probe}\nterminals:\n")
+    with make(tmp_path, text + "  SWD: {kind: debug, probe: probe}\n") as station:
+        assert station.debug.reset("SWD", "t.cfg").ok
+        assert station.devices["probe"].calls[-1][1] == "reset"
+        with pytest.raises(ConfigError, match="'PWR' is a power terminal, not a debug"):
+            station.debug["PWR"]
+
+
+@register_driver("test_missing_relay")
+class _MissingRelay(SimRelay):
+    def open(self):
+        raise DeviceNotFound("relay module not connected")
+
+
+BEST_EFFORT = (
+    STATION.replace(
+        "terminals:\n",
+        "  bad: {driver: test_missing_relay, channels: 4}\n"
+        "  di2: {driver: sim_di, inputs: 1, mirror: {0: bad.0}}\n"
+        "terminals:\n",
+    )
+    + "  X1.2: {kind: switch, relay: bad.1}\n"
+    + "  X2.2: {kind: sense, input: di2.0}\n"
+)
+
+
+def test_best_effort_open_sets_safe_state_on_the_rest(tmp_path):
+    station = make(tmp_path, BEST_EFFORT)
+    station.devices["rel1"].states[0] = True  # power left on, e.g. by a crashed run
+    errors = station.open(best_effort=True)
+    assert [str(e) for e in errors] == [
+        "relay module not connected",
+        "device 'di2' not opened: it depends on bad",
+    ]
+    assert station.devices["rel1"].is_open
+    assert not station.devices["rel1"].states[0]
+    assert not station.devices["di2"].is_open
+    station.close()
+
+
+def test_open_without_best_effort_fails_fast(tmp_path):
+    station = make(tmp_path, BEST_EFFORT)
+    with pytest.raises(DeviceNotFound, match="relay module not connected"):
+        station.open()
+    assert station._opened == []

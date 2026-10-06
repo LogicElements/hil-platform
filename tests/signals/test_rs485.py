@@ -236,7 +236,8 @@ def test_bad_parity_waits_for_transmission(rs485, monkeypatch):
     sleeps = []
     monkeypatch.setattr(hil.signals.rs485.time, "sleep", sleeps.append)
     rs485.inject("bad_parity", FRAME)
-    assert sleeps == [pytest.approx(len(FRAME) * rs485.params.char_time_s() + 0.002)]
+    char_s = SerialParams(timeout_s=0.3, parity="E").char_time_s()
+    assert sleeps == [pytest.approx(len(FRAME) * char_s + 0.002)]
 
 
 def test_wait_after_stop_reports_stopped_monitor(rs485, monitor):
@@ -260,3 +261,46 @@ def test_close_closes_port_when_background_work_fails(rs485, monkeypatch):
         rs485.close()
     assert not port.is_open
     assert not rs485.is_open
+
+
+def test_master_is_reused_and_keeps_gap(rs485):
+    master = rs485.modbus
+    assert rs485.modbus is master
+    assert master.min_gap_s == rs485.params.gap_s()
+    rs485.configure("modbus", SerialParams(baud=9600, timeout_s=0.3))
+    assert rs485.modbus is not master
+    assert rs485.modbus.min_gap_s == SerialParams(baud=9600).gap_s()
+
+
+def test_bad_parity_switch_failure_is_device_error(rs485, monkeypatch):
+    port = rs485.port
+
+    def refuse(self, value):
+        raise ValueError("parity not supported")
+
+    monkeypatch.setattr(type(port), "parity", property(lambda self: "N", refuse))
+    with pytest.raises(DeviceError, match="cannot switch parity to E"):
+        rs485.inject("bad_parity", FRAME)
+
+
+def test_parity_restore_failure_closes_port_and_survives_close_error(rs485, monkeypatch, caplog):
+    port = rs485.port
+    state = {"parity": "N"}
+
+    def set_parity(self, value):
+        if value == "N":
+            raise SerialException("cannot restore")
+        state["parity"] = value
+
+    monkeypatch.setattr(type(port), "parity", property(lambda self: state["parity"], set_parity))
+    closed = []
+
+    def broken_close():
+        closed.append(True)
+        raise SerialException("close failed")
+
+    monkeypatch.setattr(rs485, "close", broken_close)
+    assert rs485.inject("bad_parity", FRAME) == FRAME
+    assert closed
+    assert "cannot restore parity N" in caplog.text
+    assert "closing the port failed: close failed" in caplog.text

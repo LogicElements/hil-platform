@@ -1,5 +1,6 @@
 """Binary stimulus (switch) and binary response (sense) terminals."""
 
+import logging
 import threading
 import time
 from collections.abc import Iterator
@@ -7,11 +8,17 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from hil import clock
-from hil.errors import WaitTimeout
+from hil.errors import DeviceTimeout, WaitTimeout
 from hil.recording import Recorder
 from hil.resources import DigitalInput, RelayChannel
 from hil.signals.base import Signal
 from hil.signals.timing import precise_sleep
+
+log = logging.getLogger("hil.signals.digital")
+
+# longest wait for the first reading of a recorded input and for the recording to stop
+_START_TIMEOUT_S = 5.0
+_STOP_TIMEOUT_S = 5.0
 
 
 class SwitchSignal(Signal):
@@ -108,12 +115,24 @@ class SenseSignal(Signal):
 
         thread = threading.Thread(target=run, name=f"hil-record-{self.name}", daemon=True)
         thread.start()
-        started.wait()
+        try:
+            ok = started.wait(_START_TIMEOUT_S)
+        except BaseException:
+            # e.g. TerminationRequested: do not leave the recording thread running
+            stop.set()
+            raise
+        if not ok:
+            stop.set()
+            raise DeviceTimeout(
+                f"{self.name}: first reading of the input took longer than {_START_TIMEOUT_S} s"
+            )
         try:
             yield recording
         finally:
             stop.set()
-            thread.join()
+            thread.join(_STOP_TIMEOUT_S)
+            if thread.is_alive():
+                log.warning("%s: recording did not stop within %s s", self.name, _STOP_TIMEOUT_S)
             self._event(
                 "recorded",
                 changes=len(recording.changes),

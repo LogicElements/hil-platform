@@ -1,0 +1,50 @@
+# Station lab-a: the selected hardware set (doc/vyber/doporuceni.md).
+# Serial numbers and device paths marked REPLACE are placeholders until the station is
+# built; put in the values of the real devices and check them with
+#   hil check --station stations/lab-a.yaml --probe
+# Analog terminals (AO.*, AI.*) are wired in plan 4 together with the Analog Discovery 3;
+# rel2 is reserved for their multiplexer.
+name: lab-a
+labels: [hil, lab-a]
+profile: standard-v1
+devices:
+  # isolated USB to RS-485 converter, the fifth serial port next to the FT4232H
+  relay_bus:
+    driver: modbus_rtu_bus
+    port: /dev/serial/by-id/usb-FTDI_USB-RS485-REPLACE-if00-port0
+    baud: 9600
+  rel1: {driver: waveshare_relay32, bus: relay_bus, address: 1}
+  rel2: {driver: waveshare_relay32, bus: relay_bus, address: 2}
+  di1: {driver: modbus_di, bus: relay_bus, address: 5, count: 8}
+  # Waveshare USB to 4-Ch Serial Converter: A TTL, B TTL or RS-485, C and D isolated RS-485
+  ft:
+    driver: serial_ports
+    ports:
+      A: {serial: FT4232-REPLACE, interface: 0}
+      B: {serial: FT4232-REPLACE, interface: 1}
+      C: {serial: FT4232-REPLACE, interface: 2}
+      D: {serial: FT4232-REPLACE, interface: 3}
+  stlink: {driver: openocd, interface: interface/stlink.cfg}
+terminals:
+  PWR: {kind: power, relays: [rel1.0, rel1.1]}
+  X1.1: {kind: switch, relay: rel1.2}
+  X1.2: {kind: switch, relay: rel1.3}
+  X1.3: {kind: switch, relay: rel1.4}
+  X1.4: {kind: switch, relay: rel1.5}
+  F1: {kind: fault_path, series: rel1.6, short: rel1.7}
+  F2: {kind: fault_path, series: rel1.8, short: rel1.9}
+  F3: {kind: fault_path, series: rel1.10, short: rel1.11}
+  F4: {kind: fault_path, series: rel1.12, short: rel1.13}
+  X2.1: {kind: sense, input: di1.0}
+  X2.2: {kind: sense, input: di1.1}
+  X2.3: {kind: sense, input: di1.2}
+  X2.4: {kind: sense, input: di1.3}
+  X2.5: {kind: sense, input: di1.4}
+  X2.6: {kind: sense, input: di1.5}
+  X2.7: {kind: sense, input: di1.6}
+  X2.8: {kind: sense, input: di1.7}
+  CON: {kind: serial, port: ft.A}
+  LOG: {kind: serial, port: ft.B}
+  COM1: {kind: rs485, port: ft.C}
+  MON1: {kind: rs485_monitor, port: ft.D}
+  SWD: {kind: debug, probe: stlink}

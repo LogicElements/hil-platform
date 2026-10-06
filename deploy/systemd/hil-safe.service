@@ -1,0 +1,16 @@
+# HIL station: safe state after boot (NF-03). Edit the paths, then
+#   sudo cp hil-safe.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable hil-safe.service
+[Unit]
+Description=HIL station safe state after boot
+# wait until udev has created the serial devices
+Wants=systemd-udev-settle.service
+After=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+User=hil
+ExecStart=/opt/hil/venv/bin/hil safe --station /opt/hil/hil-platform/stations/lab-a.yaml
+
+[Install]
+WantedBy=multi-user.target

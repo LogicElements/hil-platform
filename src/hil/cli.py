@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from hil.config.loader import load_dut
-from hil.errors import ConfigError, HilError
+from hil.errors import ConfigError, DeviceError, HilError
 from hil.locking import StationLock
 from hil.station import Station
 
@@ -64,9 +64,28 @@ def _check(station: Station, dut_path: Path | None, probe: bool) -> int:
 
 
 def _safe(station: Station) -> int:
-    # open() and close() both apply the safe state
-    with StationLock(station.name), station:
-        pass
+    errors: list[Exception] = []
+    with StationLock(station.name):
+        try:
+            errors += station.open(best_effort=True)
+        finally:
+            # also after Ctrl+C during the open: the devices opened so far get the safe
+            # state and are released
+            try:
+                station.close()  # sets the safe state once more and releases the devices
+            except DeviceError as exc:
+                errors.append(exc)
+    if errors:
+        seen: set[str] = set()
+        for error in errors:
+            if str(error) not in seen:
+                seen.add(str(error))
+                print(f"device error: {error}", file=sys.stderr)
+        print(
+            f"station {station.name!r}: safe state set only on the devices that opened",
+            file=sys.stderr,
+        )
+        return EXIT_DEVICE
     print(f"station {station.name!r}: safe state set")
     return EXIT_OK
 
@@ -85,6 +104,7 @@ def _info(station: Station) -> int:
         "digital": [*station.digital.switches, *station.digital.senses],
         "faults": list(station.faults.paths),
         "comm": [*station.comm.serials, *station.comm.rs485s, *station.comm.monitors],
+        "debug": list(station.debug.signals),
     }
     print("blocks:")
     for block, names in blocks.items():

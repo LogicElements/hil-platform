@@ -1,6 +1,7 @@
 # Built-in simulated station: every device is simulated, no hardware is needed.
 # It wires every power, switch, sense, fault_path, serial, rs485 and rs485_monitor
-# terminal of the standard-v1 profile (analog and debug terminals are not wired).
+# terminal of the standard-v1 profile (analog terminals are not wired).
+# SWD is wired to the simulated probe ``probe``.
 # X1.1 is looped back to X2.1 (di1.0 mirrors rel1.2), so stimulus and response can be tested.
 # Tests play the DUT side of the serial buses through hil.devices["ser"].endpoint(...):
 # dut_con (console CON), dut_log (log LOG), dut_rs485 (RS-485 bus of COM1 and MON1).
@@ -11,6 +12,7 @@ devices:
   rel1: {driver: sim_relay, channels: 32}
   di1: {driver: sim_di, inputs: 8, mirror: {0: rel1.2}}
   ser: {driver: sim_serial, buses: {con: [con, dut_con], log: [log, dut_log], rs485: [com1, mon1, dut_rs485]}}
+  probe: {driver: sim_probe}
 terminals:
   PWR: {kind: power, relays: [rel1.0, rel1.1]}
   X1.1: {kind: switch, relay: rel1.2}
@@ -33,3 +35,4 @@ terminals:
   LOG: {kind: serial, port: ser.log}
   COM1: {kind: rs485, port: ser.com1}
   MON1: {kind: rs485_monitor, port: ser.mon1}
+  SWD: {kind: debug, probe: probe}

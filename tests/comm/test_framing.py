@@ -187,3 +187,21 @@ def test_resync_matches_brute_force():
                 parts.append(frame)
         data = b"".join(parts)
         assert [f.raw for f in split_frames(data, t=0.0)] == _reference_split(data)
+
+
+def test_bit_read_response_with_three_bytes_after_request():
+    request = modbus.read_request(1, modbus.READ_COILS, 0, 20)
+    response = modbus.with_crc(bytes((1, 1, 3, 0x01, 0x02, 0x03)))
+    splitter = FrameSplitter(gap_s=0.002)
+    frames = splitter.feed(request, 0.0)
+    frames += splitter.poll(0.01)
+    frames += splitter.feed(response, 0.02)
+    frames += splitter.poll(0.03)
+    assert [f.decoded.kind for f in frames if f.decoded] == ["request", "response"]
+
+
+def test_split_frames_passes_previous_frame():
+    request = modbus.read_request(1, modbus.READ_COILS, 0, 20)
+    response = modbus.with_crc(bytes((1, 1, 3, 0x01, 0x02, 0x03)))
+    frames = split_frames(request + response, t=0.0)
+    assert [f.decoded.kind for f in frames if f.decoded] == ["request", "response"]

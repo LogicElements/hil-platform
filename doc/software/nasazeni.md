@@ -1,0 +1,36 @@
+# Nasazení stanoviště
+
+## Linux (Debian, Raspberry Pi OS)
+
+### Instalace balíčku
+
+1. Uživatel stanoviště a skupiny pro sériové porty a ladicí sondu:
+   `sudo useradd -m -G dialout,plugdev hil`
+2. Repozitář a virtuální prostředí:
+   ```
+   sudo mkdir -p /opt/hil && sudo chown hil: /opt/hil
+   git clone git@github.com:LogicElements/hil-platform.git /opt/hil/hil-platform
+   python3 -m venv /opt/hil/venv
+   /opt/hil/venv/bin/pip install -e /opt/hil/hil-platform
+   ```
+3. OpenOCD z distribuce: `sudo apt install openocd`. Balíček přidá pravidla udev pro ST-Link. Ovladač `openocd` používá syntaxi `adapter serial` a `adapter speed`, potřebuje tedy OpenOCD 0.12 nebo novější (`adapter serial` je od verze 0.12.0, starší verze měly `hla_serial`). Debian bookworm obsahuje verzi 0.12.
+4. WaveForms a Adept runtime pro Analog Discovery 3 se instalují podle [návodu Digilentu](../vyber/doporuceni.md) (ARM64 na Raspberry Pi 5). Ovladač přibude v plánu 4.
+
+### Pravidla udev
+
+Soubor [deploy/udev/99-hil.rules](../../deploy/udev/99-hil.rules) zpřístupní porty FTDI skupině `dialout` a nastaví latency timer FTDI na 1 ms (pasivní záchyt RS-485 jinak slévá rámce). Bez pravidla se balíček pokusí latency timer nastavit sám a při chybějících právech jen varuje.
+
+### Bezpečný stav po startu
+
+Služba [deploy/systemd/hil-safe.service](../../deploy/systemd/hil-safe.service) spustí po startu PC `hil safe` (NF-03). V souboru upravte cestu k prostředí a ke stanovišti. `hil safe` pracuje best-effort: zařízení, které se nepodaří otevřít, přeskočí (i zařízení na něm závislá), na ostatních nastaví bezpečný stav, chyby vypíše a skončí kódem 3. Výsledek ukáže `systemctl status hil-safe`.
+
+### Ukončení běžících testů
+
+SIGINT (Ctrl+C), SIGTERM (`systemctl stop`, zrušení jobu v GitHub Actions) a SIGHUP (zavřený terminál) běh testů přeruší a úklid nastaví úplný bezpečný stav. Obsluha signálu sama na sběrnici nesahá. Rozpracovaná transakce se přeruší a sběrnice zůstane potichu až do konce jejího timeoutu, aby se pozdní odpověď modulu nesrazila s vypnutím napájení. Každý další signál od prvního až do zavření stanoviště se jen zaloguje, proces pak jde zastavit jen signálem SIGKILL, který systemd i CI pošlou po vypršení svého timeoutu. Pod `nohup` zůstává SIGHUP ignorovaný. Při `atexit` (konec interpretu bez úklidu) se vypne aspoň napájení DUT.
+
+## Windows (vývoj)
+
+- Ovladač FTDI VCP je součástí Windows Update. Latency timer nastavte ve Správci zařízení: port, Vlastnosti, Port Settings, Advanced, Latency Timer 1 ms. Balíček ho na Windows neověřuje, jen to připomene v logu.
+- Port lze zadat jako `COM7` nebo sériovým číslem čipu FTDI (`{serial: FT4ABC, interface: 2}`). Jednokanálový čip (FT232R, FT232H) má jen `interface: 0`.
+- OpenOCD (např. sestavení xPack) přidejte do `PATH`, nebo ve stanovišti uveďte `command: [C:/tools/openocd/bin/openocd.exe]`.
+- Ukončení: Ctrl+C a Ctrl+Break přeruší běh stejně jako na Linuxu.

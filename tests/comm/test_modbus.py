@@ -90,3 +90,21 @@ def test_decode_unknown_and_bad_crc():
     assert unknown.to_dict()["address"] == 1
     with pytest.raises(ValueError, match="bad CRC"):
         modbus.decode(b"\x01\x03\x00\x00\x00\x01\x00\x00")
+
+
+def test_decode_bit_read_response_with_three_bytes():
+    request = modbus.read_request(1, modbus.READ_COILS, 0, 20)
+    response = modbus.with_crc(bytes((1, 1, 3, 0x01, 0x02, 0x03)))
+    # without the request the frame has the length of a request
+    assert modbus.decode(response).kind == "request"
+    decoded = modbus.decode(response, modbus.decode(request))
+    assert decoded.kind == "response"
+    bits = decoded.fields["bits"]
+    assert isinstance(bits, list)
+    assert bits[0] is True and bits[9] is True and bits[1] is False
+
+
+def test_decode_previous_of_other_device_is_ignored():
+    request = modbus.read_request(2, modbus.READ_COILS, 0, 20)
+    response = modbus.with_crc(bytes((1, 1, 3, 0x01, 0x02, 0x03)))
+    assert modbus.decode(response, modbus.decode(request)).kind == "request"

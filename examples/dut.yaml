@@ -11,3 +11,4 @@ signals:
   log: {terminal: LOG, baud: 115200}
   rs485: {terminal: COM1, baud: 921600, parity: E}
   bus_monitor: {terminal: MON1, baud: 921600, parity: E}
+  firmware: {terminal: SWD, target: target/stm32g4x.cfg}

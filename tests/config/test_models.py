@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from hil.config.models import (
     AnalogOutTerminal,
+    DebugParams,
     DutConfig,
     FaultPathTerminal,
     PowerTerminal,
@@ -140,3 +141,12 @@ def test_signal_params():
         signal_params("switch", {"baud": 1})
     with pytest.raises(ValidationError):
         signal_params("serial", {"parity": "X"})
+
+
+def test_debug_params():
+    params = signal_params("debug", {"target": "target/stm32g4x.cfg"})
+    assert params == DebugParams(target="target/stm32g4x.cfg", timeout_s=120.0)
+    with pytest.raises(ValidationError):
+        signal_params("debug", {})
+    with pytest.raises(ValidationError):
+        signal_params("debug", {"target": "t.cfg", "speed": 4000})

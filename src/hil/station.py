@@ -11,9 +11,10 @@ from types import FrameType
 from typing import Any
 
 import hil.drivers  # noqa: F401  (registers the built-in drivers)
-from hil.blocks import CommBlock, DigitalBlock, FaultMatrix, PowerBlock
+from hil.blocks import CommBlock, DebugBlock, DigitalBlock, FaultMatrix, PowerBlock
 from hil.config.loader import LoadedStation, load_station
 from hil.config.models import (
+    DebugTerminal,
     FaultPathTerminal,
     PowerTerminal,
     Rs485MonitorTerminal,
@@ -21,14 +22,16 @@ from hil.config.models import (
     SenseTerminal,
     SerialTerminal,
     SwitchTerminal,
+    terminal_refs,
 )
 from hil.config.refs import ResourceRef
 from hil.drivers.base import Device
 from hil.drivers.registry import create_device, open_order
-from hil.errors import ConfigError, DeviceError, SignalUnavailable
+from hil.errors import ConfigError, DeviceError, SignalUnavailable, TerminationRequested
 from hil.recording import Recorder
-from hil.resources import DigitalInput, RelayChannel, SerialLink
+from hil.resources import DebugProbe, DigitalInput, RelayChannel, SerialLink
 from hil.signals import (
+    DebugSignal,
     FaultPath,
     PowerSignal,
     Rs485Monitor,
@@ -65,6 +68,9 @@ class Station:
         self.terminals: dict[str, Signal] = {
             name: self._build(name, terminal) for name, terminal in self.config.terminals.items()
         }
+        self._terminal_devices: dict[str, frozenset[str]] = {
+            name: _devices_of(terminal) for name, terminal in self.config.terminals.items()
+        }
         terminals = self.profile.terminals
         self.power = PowerBlock(self._of(PowerSignal), terminals)
         self.digital = DigitalBlock(self._of(SwitchSignal), self._of(SenseSignal), terminals)
@@ -72,9 +78,12 @@ class Station:
         self.comm = CommBlock(
             self._of(SerialSignal), self._of(Rs485Signal), self._of(Rs485Monitor), terminals
         )
+        self.debug = DebugBlock(self._of(DebugSignal), terminals)
         self._opened: list[str] = []
         self._previous_handlers: dict[int, _Handler] = {}
         self._atexit_registered = False
+        self._terminating = False
+        self._closing = False
 
     @classmethod
     def from_files(
@@ -125,6 +134,13 @@ class Station:
                 return Rs485Signal(name, rec, self._resource(name, port, SerialLink))
             case Rs485MonitorTerminal(port=port):
                 return Rs485Monitor(name, rec, self._resource(name, port, SerialLink))
+            case DebugTerminal(probe=probe):
+                device = self.devices[probe]
+                if not isinstance(device, DebugProbe):
+                    raise ConfigError(
+                        f"{self.source}: terminal {name!r}: device {probe!r} is not a debug probe"
+                    )
+                return DebugSignal(name, rec, device)
         kind = getattr(terminal, "kind", "?")
         raise ConfigError(
             f"{self.source}: terminal {name!r}: kind {kind!r} is not supported "
@@ -148,7 +164,16 @@ class Station:
 
     # --- life cycle -----------------------------------------------------
 
-    def open(self) -> None:
+    def open(self, best_effort: bool = False) -> list[Exception]:
+        """Open all devices and set the safe state.
+
+        With ``best_effort`` a device that fails to open, and every device that depends
+        on it, is skipped; the safe state is set on the rest and the errors are returned
+        instead of raised. ``hil safe`` uses it at boot, so that one missing module does
+        not leave the other outputs of the station switched on.
+        """
+        if best_effort:
+            return self._open_best_effort()
         try:
             for name in self._order:
                 self.devices[name].open()
@@ -160,35 +185,87 @@ class Station:
             except Exception as cleanup_error:
                 log.error("cleanup after failed open of station %s: %s", self.name, cleanup_error)
             raise
+        return []
+
+    def _open_best_effort(self) -> list[Exception]:
+        errors: list[Exception] = []
+        failed: set[str] = set()
+        for name in self._order:
+            device = self.devices[name]
+            missing = failed.intersection(device.dependencies())
+            if missing:
+                failed.add(name)
+                errors.append(
+                    DeviceError(
+                        f"device {name!r} not opened: it depends on {', '.join(sorted(missing))}"
+                    )
+                )
+                continue
+            try:
+                device.open()
+            except Exception as exc:
+                log.error("opening device %s failed: %s", name, exc)
+                failed.add(name)
+                errors.append(exc)
+                continue
+            self._opened.append(name)
+        try:
+            self.safe_state()
+        except DeviceError as exc:
+            errors.append(exc)
+        return errors
 
     def close(self) -> None:
-        self._remove_emergency_handlers()
-        errors: list[Exception] = []
-        if self._opened:
-            try:
-                self.safe_state()
-            except DeviceError as exc:
-                errors.append(exc)
-        for signal in self.terminals.values():
-            try:
-                signal.close()
-            except Exception as exc:
-                log.error("closing terminal %s failed: %s", signal.name, exc)
-                errors.append(exc)
-        for name in reversed(self._opened):
-            try:
-                self.devices[name].close()
-            except Exception as exc:
-                log.error("closing device %s failed: %s", name, exc)
-                errors.append(exc)
-        self._opened.clear()
-        if errors:
-            raise DeviceError(f"closing station {self.name!r} failed: {errors[0]}")
+        """Safe state, release signals and devices; signal handlers are restored last."""
+        self._closing = True
+        try:
+            errors: list[Exception] = []
+            if self._opened:
+                try:
+                    self.safe_state()
+                except DeviceError as exc:
+                    errors.append(exc)
+            for signal in self.terminals.values():
+                try:
+                    signal.close()
+                except Exception as exc:
+                    log.error("closing terminal %s failed: %s", signal.name, exc)
+                    errors.append(exc)
+            for name in reversed(self._opened):
+                try:
+                    self.devices[name].close()
+                except Exception as exc:
+                    log.error("closing device %s failed: %s", name, exc)
+                    errors.append(exc)
+            self._opened.clear()
+            if errors:
+                raise DeviceError(f"closing station {self.name!r} failed: {errors[0]}")
+        finally:
+            self._remove_emergency_handlers()
+            self._closing = False
+            self._terminating = False
 
     def safe_state(self) -> None:
-        """Power off first, then every terminal and every open device."""
-        errors: list[Exception] = self.power.emergency_off()
-        for signal in self.terminals.values():
+        """Power off first, then every terminal and every open device.
+
+        Terminals on a device that is not open (after ``open(best_effort=True)``) are
+        skipped.
+        """
+        opened = set(self._opened)
+        ready = [
+            signal
+            for name, signal in self.terminals.items()
+            if self._terminal_devices[name] <= opened
+        ]
+        errors: list[Exception] = []
+        for signal in ready:
+            if isinstance(signal, PowerSignal):
+                try:
+                    signal.off()
+                except Exception as exc:
+                    log.error("switching off %s failed: %s", signal.name, exc)
+                    errors.append(exc)
+        for signal in ready:
             if isinstance(signal, PowerSignal):
                 continue
             try:
@@ -210,29 +287,44 @@ class Station:
             log.error("emergency off: %s", error)
 
     def install_emergency_handlers(self) -> None:
-        """Switch the DUT power off on interpreter exit and on termination signals."""
+        """Interrupt the main thread on termination signals; power off at interpreter exit.
+
+        The handlers do no device I/O: the main thread may be inside a bus transaction
+        and a frame sent from the handler would corrupt it. They raise
+        ``TerminationRequested`` and the cleanup (``close``, pytest teardown) sets the
+        full safe state.
+        """
         if not self._atexit_registered:
             atexit.register(self._at_exit)
             self._atexit_registered = True
         if threading.current_thread() is not threading.main_thread():
             return
-        names = ("SIGINT", "SIGBREAK") if sys.platform == "win32" else ("SIGINT", "SIGTERM")
+        if sys.platform == "win32":
+            names: tuple[str, ...] = ("SIGINT", "SIGBREAK")
+        else:
+            names = ("SIGINT", "SIGTERM", "SIGHUP")
         for signame in names:
             signum = getattr(os_signal, signame)
             if signum in self._previous_handlers:
                 continue
             previous = os_signal.getsignal(signum)
+            if previous == os_signal.SIG_IGN:
+                continue  # e.g. SIGHUP under nohup: the run is meant to survive it
             self._previous_handlers[signum] = previous
-            os_signal.signal(signum, self._make_handler(previous))
+            os_signal.signal(signum, self._make_handler(signame, previous))
 
-    def _make_handler(self, previous: _Handler) -> Callable[[int, FrameType | None], None]:
+    def _make_handler(
+        self, signame: str, previous: _Handler
+    ) -> Callable[[int, FrameType | None], None]:
         def handler(signum: int, frame: FrameType | None) -> None:
-            self.emergency_off()
-            if callable(previous):
+            if self._terminating or self._closing:
+                log.warning("%s ignored: the station is being put into the safe state", signame)
+                return
+            self._terminating = True
+            log.warning("%s received: stopping, the station goes to the safe state", signame)
+            if callable(previous) and previous is not os_signal.default_int_handler:
                 previous(signum, frame)
-            elif previous is None or previous == os_signal.SIG_DFL:
-                os_signal.signal(signum, os_signal.SIG_DFL)
-                os_signal.raise_signal(signum)
+            raise TerminationRequested(signame)
 
         return handler
 
@@ -258,3 +350,11 @@ class Station:
 
     def __repr__(self) -> str:
         return f"<Station {self.name} ({self.source})>"
+
+
+def _devices_of(terminal: Any) -> frozenset[str]:
+    """Names of the devices a station terminal uses."""
+    devices = {ref.device for ref in terminal_refs(terminal)}
+    if isinstance(terminal, DebugTerminal):
+        devices.add(terminal.probe)
+    return frozenset(devices)

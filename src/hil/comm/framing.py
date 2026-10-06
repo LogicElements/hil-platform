@@ -130,12 +130,13 @@ def _resync(data: bytes, pos: int) -> int:
     return first
 
 
-def split_frames(data: bytes, t: float) -> list[Frame]:
+def split_frames(data: bytes, t: float, previous: ModbusFrame | None = None) -> list[Frame]:
     """Split one burst into frames; bytes that form no valid frame become an error frame.
 
     After bytes that start no valid frame (a stray byte, a truncated frame), the error
     frame ends where the rest of the burst splits cleanly into valid frames to its end;
     when there is no such position, the rest of the burst is one error frame.
+    ``previous`` is the last frame decoded before the burst (see ``decode``).
     """
     frames: list[Frame] = []
     pos = 0
@@ -147,7 +148,9 @@ def split_frames(data: bytes, t: float) -> list[Frame]:
             pos = resync
             continue
         raw = data[pos : pos + length]
-        frames.append(Frame(t, raw, decode(raw), None))
+        decoded = decode(raw, previous)
+        frames.append(Frame(t, raw, decoded, None))
+        previous = decoded
         pos += length
     return frames
 
@@ -165,6 +168,7 @@ class FrameSplitter:
         self._buffer = bytearray()
         self._first = 0.0
         self._last = 0.0
+        self._previous: ModbusFrame | None = None
 
     def feed(self, data: bytes, t: float) -> list[Frame]:
         frames = self.poll(t)
@@ -188,4 +192,8 @@ class FrameSplitter:
             return []
         data = bytes(self._buffer)
         self._buffer.clear()
-        return split_frames(data, self._first)
+        frames = split_frames(data, self._first, self._previous)
+        for frame in frames:
+            if frame.decoded is not None:
+                self._previous = frame.decoded
+        return frames
