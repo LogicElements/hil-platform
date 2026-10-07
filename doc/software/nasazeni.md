@@ -30,7 +30,7 @@ SIGINT (Ctrl+C), SIGTERM (`systemctl stop`, zrušení jobu v GitHub Actions) a S
 
 ## Windows (vývoj)
 
-- Ovladač FTDI VCP je součástí Windows Update. Latency timer nastavte ve Správci zařízení: port, Vlastnosti, Port Settings, Advanced, Latency Timer 1 ms. Balíček ho na Windows neověřuje, jen to připomene v logu.
+- Ovladač FTDI VCP je součástí Windows Update. Latency timer nastavte ve Správci zařízení: port, Vlastnosti, Port Settings, Advanced, Latency Timer 1 ms. Balíček ho na Windows neověřuje, jen to připomene v logu. Platí to i pro převodník sběrnice relé, s výchozími 16 ms trvá každá transakce Modbus o 16 ms déle.
 - Port lze zadat jako `COM7` nebo sériovým číslem čipu FTDI (`{serial: FT4ABC, interface: 2}`). Jednokanálový čip (FT232R, FT232H) má jen `interface: 0`.
 - OpenOCD (např. sestavení xPack) přidejte do `PATH`, nebo ve stanovišti uveďte `command: [C:/tools/openocd/bin/openocd.exe]`.
 - WaveForms (s Adept runtime) nainstaluje `dwf.dll` do systémového adresáře, ovladač ji najde bez další konfigurace. Program WaveForms musí být během testů zavřený, AD3 jde otevřít jen jedním programem.

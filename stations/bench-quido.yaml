@@ -3,7 +3,7 @@ name: bench-quido
 labels: [bench]
 profile: standard-v1
 devices:
-  relay_bus: {driver: modbus_rtu_bus, port: COM4, baud: 19200, parity: E}
+  relay_bus: {driver: modbus_rtu_bus, port: COM4, baud: 115200, parity: E}
   quido: {driver: quido_rs_2_32, bus: relay_bus, address: 49}
 terminals:
   X1.1: {kind: switch, relay: quido.0}

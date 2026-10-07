@@ -9,7 +9,7 @@ Všechna zařízení na sběrnici relé (moduly relé a vstupů) mají jedno spo
 | Parametr | Hodnota |
 |---|---|
 | protokol | Modbus RTU |
-| rychlost | 19 200 Bd |
+| rychlost | 115 200 Bd |
 | znak | 8 datových bitů, sudá parita, 1 stop bit (8E1) |
 
 Každé zařízení má vlastní adresu:
@@ -18,13 +18,13 @@ Každé zařízení má vlastní adresu:
 |---|---|
 | Papouch Quido RS 2/32 | 49 |
 
-Zařízení si nastaví uživatel sám podle dokumentace výrobce, balíček je nekonfiguruje. Stanoviště uvádí totéž nastavení u `modbus_rtu_bus` (`baud: 19200`, `parity: E`). Do budoucna se sběrnice může zrychlit na 115 200 Bd. Pak se rychlost změní u všech zařízení najednou i ve stanovištích.
+Zařízení si nastaví uživatel sám podle dokumentace výrobce, balíček je nekonfiguruje. Stanoviště uvádí totéž nastavení u `modbus_rtu_bus` (`baud: 115200`, `parity: E`). Změna rychlosti se dělá u všech zařízení najednou i ve stanovištích. Původně byla sběrnice na 19 200 Bd, 7. 10. 2026 se zrychlila na 115 200 Bd, protože jedna transakce trvala asi 17 ms a smyčka relé → vstup se nevešla spolehlivě do limitu 50 ms. Na Windows musí mít převodník FTDI latency timer 1 ms (viz [nasazení](nasazeni.md)), s výchozími 16 ms trvá každá transakce o 16 ms déle.
 
 ## Pořadí
 
 | # | Zařízení | Co se ověří | Stav |
 |---|---|---|---|
-| 1 | Papouch Quido RS 2/32 | Modbus RTU, mapa coilů a vstupů, stav po zapnutí, zpoždění smyčky relé → vstup | hotovo kromě kroku 5 |
+| 1 | Papouch Quido RS 2/32 | Modbus RTU, mapa coilů a vstupů, stav po zapnutí, zpoždění smyčky relé → vstup | hotovo |
 | 2 | Waveshare Modbus RTU Relay 32-ch | mapa coilů, stav po zapnutí, sdílená sběrnice s Quido | odloženo, není k dispozici |
 | 3 | modul digitálních vstupů (`modbus_di`) | nahrazeno linkami DIO Analog Discovery 3 (bod 6), Modbus modul je budoucí alternativa pro jiné úrovně než 3,3 V | odloženo |
 | 4 | napájení přes zdroj HDR | `outage()`, odchylka pod 10 ms | čeká |
@@ -47,8 +47,8 @@ Zdroj: [Quido – MODBUS](https://cdn.papouch.com/data/user-content/spolecne/qui
 - Výstupy jsou coily od 0 (výstup 1 = coil 0), vstupy jsou discrete inputs od 0 (IN1 = 0). Odpovídá výchozím volbám ovladače `quido_rs_2_32` (`coil_base: 0`, `input_base: 0`).
 - Holding registry 13, 14 a 15 obsahují počet vstupů, výstupů a teploměrů. Od registru 1000 jsou kopie stavů vstupů, od 1200 kopie stavů výstupů.
 - Adresa 0 je broadcast (bez odpovědi), adresa 248 (0xF8) je univerzální a modul na ni odpoví. Hodí se, jen když je na lince jediný modul.
-- Registr 4 „Rozlišení konce paketu“: ticho mezi bajty, které modul bere jako konec rámce, výchozí 10 znaků (4 až 100). Při 19 200 Bd modul na dotaz odpoví nejdřív asi 6 ms po jeho konci.
-- Vstupy jsou izolované, 7 až 28 V (existuje i varianta 4,5 až 9 V). Aktivní vstup znamená připojené napětí. Napájení modulu je 8 až 30 V.
+- Registr 4 „Rozlišení konce paketu“: ticho mezi bajty, které modul bere jako konec rámce, výchozí 10 znaků (4 až 100). Při 115 200 Bd modul na dotaz odpoví asi 1 ms po jeho konci (při 19 200 Bd asi 6 ms).
+- Vstupy jsou izolované, 7 až 28 V (existuje i varianta 4,5 až 9 V, tento kus má 7 až 28 V). Aktivní vstup znamená připojené napětí. Napájení modulu je 8 až 30 V.
 
 ### Potřebné vybavení
 
@@ -62,10 +62,10 @@ Zdroj: [Quido – MODBUS](https://cdn.papouch.com/data/user-content/spolecne/qui
 Ověří, že modul odpovídá na Modbus, a přečte jeho typ a stav. Spouští se z kořene repozitáře:
 
 ```
-.venv/Scripts/python -c "import serial; from hil.comm.master import ModbusMaster; p = serial.Serial('COM4', 19200, parity='E', timeout=0.05); m = ModbusMaster(p, timeout_s=0.5); print('registry 1 až 4:', m.read_holding_registers(49, 1, 4)); print('coily:', m.read_coils(49, 0, 32)); print('vstupy:', m.read_discrete_inputs(49, 0, 2))"
+.venv/Scripts/python -c "import serial; from hil.comm.master import ModbusMaster; p = serial.Serial('COM4', 115200, parity='E', timeout=0.05); m = ModbusMaster(p, timeout_s=0.5); print('registry 1 až 4:', m.read_holding_registers(49, 1, 4)); print('coily:', m.read_coils(49, 0, 32)); print('vstupy:', m.read_discrete_inputs(49, 0, 2))"
 ```
 
-Očekávané: registry 1 až 4 `[49, 7, 1, 10]` (adresa, kód rychlosti, kód parity, rozlišení konce paketu, hodnoty naměřené při společném nastavení sběrnice), 32 coilů a 2 vstupy. Registry 13 až 15 (počty vstupů, výstupů a teploměrů) tento modul vrací nulové, i když je dokumentace výrobce uvádí. Počty se proto ověří čtením na hranicích: coil 31 a vstup 1 se přečtou, coil 32 a vstup 2 skončí chybou. Pokud modul neodpovídá:
+Očekávané: registry 1 až 4 `[49, 10, 1, 10]` (adresa, kód rychlosti, kód parity, rozlišení konce paketu, hodnoty naměřené při společném nastavení sběrnice), 32 coilů a 2 vstupy. Registry 13 až 15 (počty vstupů, výstupů a teploměrů) tento modul vrací nulové, i když je dokumentace výrobce uvádí. Počty se proto ověří čtením na hranicích: coil 31 a vstup 1 se přečtou, coil 32 a vstup 2 skončí chybou. Pokud modul neodpovídá:
 - ověřit nastavení modulu (protokol, rychlost, parita) podle dokumentace výrobce,
 - zkusit univerzální adresu 248 místo 49 (zjistí, jestli modul nemá jinou adresu),
 - u RS-485 prohodit vodiče A a B a ověřit, že převodník přepíná směr sám.
@@ -80,7 +80,7 @@ name: bench-quido
 labels: [bench]
 profile: standard-v1
 devices:
-  relay_bus: {driver: modbus_rtu_bus, port: COM4, baud: 19200, parity: E}
+  relay_bus: {driver: modbus_rtu_bus, port: COM4, baud: 115200, parity: E}
   quido: {driver: quido_rs_2_32, bus: relay_bus, address: 49}
 terminals:
   X1.1: {kind: switch, relay: quido.0}
@@ -129,7 +129,7 @@ $env:HIL_HW_LOOPBACK = "X1.1:X2.1,X1.2:X2.2"
 .venv/Scripts/python -m pytest tests/hw -v -s -k test_loopback_latency_and_polling_period
 ```
 
-Test měří zpoždění od sepnutí relé po změnu vstupu (limit 50 ms) a průměrnou periodu čtení vstupu. Při 19 200 Bd a výchozím rozlišení konce paketu (10 znaků, asi 6 ms) by se zpoždění mělo do limitu vejít, ověří se to měřením (zápis relé, čekání modulu, odpověď a čtení vstupu jsou několik rámců za sebou). Pokud limit nesplní, další pokus je zrychlit celou sběrnici (např. na 115 200 Bd, viz [nastavení sběrnice](#nastavení-sběrnice-modbus-rtu)) nebo zkrátit rozlišení konce paketu Quido.
+Test měří zpoždění od sepnutí relé po změnu vstupu (limit 50 ms) a průměrnou periodu čtení vstupu. Při 115 200 Bd trvá zápis relé asi 3,5 ms a čtení vstupu asi 5,5 ms. Většinu zpoždění (asi 30 ms) tvoří samotný modul (sepnutí relé a vyhodnocení vstupu), sběrnice ho už nezkrátí.
 
 ### Krok 6: Zápis výsledků
 
@@ -282,7 +282,7 @@ $env:HIL_HW_IMAGE = "examples/AmplifFilter-App.hex"
 | Quido RS 2/32, krok 2 | 6. 10. 2026 | prošlo | `hil check --probe` otevře obě zařízení, `hil info` ukazuje X1.1 až X1.4 a X2.1, X2.2 zapojené. |
 | Quido RS 2/32, krok 3 | 6. 10. 2026 | prošlo | po vypnutí a zapnutí modulu jsou všechny coily vypnuté, žádná LED relé nesvítí. |
 | Quido RS 2/32, krok 4 | 6. 10. 2026 | prošlo | `test_relay_coil_map` prošel (3,6 s). Po sepnutí coilů 0, 1, 15 a 31 svítí LED výstupů 1, 2, 16 a 32, mapa odpovídá `coil_base: 0`. Zápis více coilů funkcí 0x0F funguje. |
-| Quido RS 2/32, krok 5 | 6. 10. 2026 | odloženo | smyčka relé → vstup zatím nezapojená; mapa vstupů, varianta napětí vstupů a zpoždění proti limitu 50 ms zůstávají neověřené. |
+| Quido RS 2/32, krok 5 | 7. 10. 2026 | prošlo | smyčka relé 12 → IN1 a relé 13 → IN2 (dočasné svorky na coily 11 a 12). Mapa vstupů sedí (IN1 = vstup 0, IN2 = vstup 1, `input_base: 0`). Při 19 200 Bd a latency timeru FTDI 16 ms: čtení 30 ms, zpoždění až 64 ms (neprošlo). S latency timerem 1 ms: čtení 16,9 ms, zpoždění 32 až 51 ms (na hraně). Po zrychlení sběrnice na 115 200 Bd (registr 2 = 10): čtení 5,5 ms, zápis 3,5 ms, zpoždění 29 až 42 ms (medián 35 ms, 80 měření), test prošel třikrát. Při rozepnutí relé je zpoždění někdy jen 5 ms, při sepnutí vždy přes 29 ms. Vstupy jsou ve variantě 7 až 28 V (údaj uživatele). |
 | ST-Link a OpenOCD | 6. 10. 2026 | prošlo | NUCLEO-H7A3ZI-Q, OpenOCD od ST z CubeIDE 1.12. Reset přes `hil` 1,9 s, `test_flash_with_openocd` s lokálním `examples/AmplifFilter-App.hex` 5,0 s (program, verify, reset). Nutné `interface/stlink-dap.cfg` a `reset_config srst_only srst_nogate`, bez nich selže připojení nebo `reset init`. Neověřeno s OpenOCD z distribuce (Linux, upstream skripty). |
 | Analog Discovery 3, krok 1 | 7. 10. 2026 | prošlo | `DwfLibrary().devices()` najde `Analog Discovery 3`, SN `210415BB5F29`, WaveForms s runtime Adept nainstalovaný. |
 | Analog Discovery 3, krok 2 | 7. 10. 2026 | prošlo | `hil check --probe` otevře AD3, `hil info` ukazuje X2.1 až X2.6, X3.1 až X3.6, AO.0, AO.1, AI.1 a AI.3 zapojené. |
