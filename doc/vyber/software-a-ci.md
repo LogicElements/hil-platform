@@ -88,6 +88,8 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pytest tests --junitxml=out/junit.xml
         env: {HIL_STATION: stations/lab-a.yaml}
+      - run: hil safe --station stations/lab-a.yaml  # also after a killed test process
+        if: always()
       - uses: actions/upload-artifact@v4
         if: always()
         with: {name: hil-lab-a-logs, path: out/}

@@ -1,0 +1,29 @@
+# Bench station: Analog Discovery 3 alone, with loopback jumpers (bring-up,
+# doc/software/oziveni.md). No relays: both generators drive direct terminals.
+# Jumpers: W1 -> 1+, W2 -> 2+, 1- and 2- to ground; DIO 8..13 -> DIO 0..5.
+# Inputs are not inverted, so a sense terminal reads the level of its logic output.
+name: bench-ad3
+labels: [bench]
+profile: standard-v1
+devices:
+  ad3:
+    driver: analog_discovery_3
+    serial: 210415BB5F29
+    dio_outputs: [8, 9, 10, 11, 12, 13]
+terminals:
+  X2.1: {kind: sense, input: ad3.dio0}
+  X2.2: {kind: sense, input: ad3.dio1}
+  X2.3: {kind: sense, input: ad3.dio2}
+  X2.4: {kind: sense, input: ad3.dio3}
+  X2.5: {kind: sense, input: ad3.dio4}
+  X2.6: {kind: sense, input: ad3.dio5}
+  X3.1: {kind: logic_out, output: ad3.dio8}
+  X3.2: {kind: logic_out, output: ad3.dio9}
+  X3.3: {kind: logic_out, output: ad3.dio10}
+  X3.4: {kind: logic_out, output: ad3.dio11}
+  X3.5: {kind: logic_out, output: ad3.dio12}
+  X3.6: {kind: logic_out, output: ad3.dio13}
+  AO.0: {kind: analog_out, direct: ad3.awg1}
+  AO.1: {kind: analog_out, direct: ad3.awg2}
+  AI.1: {kind: analog_in, scope: ad3.ch1}
+  AI.3: {kind: analog_in, scope: ad3.ch2}

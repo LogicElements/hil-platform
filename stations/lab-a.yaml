@@ -30,7 +30,7 @@ devices:
   # 3.3 V, so inverted), dio8 to dio13 logic inputs of the DUT, dio14 and dio15 spare
   ad3:
     driver: analog_discovery_3
-    serial: REPLACE
+    serial: 210415BB5F29
     dio_outputs: [8, 9, 10, 11, 12, 13]
     dio_invert: [0, 1, 2, 3, 4, 5, 6, 7]
 analog:

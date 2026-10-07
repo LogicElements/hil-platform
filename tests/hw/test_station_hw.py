@@ -3,6 +3,7 @@
 import math
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -208,6 +209,31 @@ def test_analog_multiplexer_loopback(hw_station):
         analog.disconnect_all()
 
 
+def test_analog_waveforms_loopback(hw_station):
+    """Square and arbitrary waveforms and a long capture through the analog block."""
+    out, inp = analog_pairs()[0]
+    analog = hw_station.analog
+    try:
+        # square 1 V peak around 0.5 V, 30 % high: mean 0.1 V, AC RMS 2 * sqrt(0.3 * 0.7) V
+        analog.square(out, 500, 1.0, offset=0.5, duty=0.3)
+        m = analog.measure(inp)
+        print(f"{out} square 500 Hz -> {inp}: dc {m.dc:.4f} V, rms_ac {m.rms_ac:.4f} V")
+        assert m.dc == pytest.approx(0.1, abs=0.1)
+        assert m.rms_ac == pytest.approx(2 * math.sqrt(0.21), rel=0.05)
+        # 1 kHz pulse 0 V / 2 V, 25 % high: mean 0.5 V, AC RMS 2 * sqrt(0.25 * 0.75) V
+        analog.arbitrary(out, [2.0] * 25 + [0.0] * 75, rate=100_000)
+        m = analog.measure(inp)
+        print(f"{out} arbitrary 1 kHz -> {inp}: dc {m.dc:.4f} V, rms_ac {m.rms_ac:.4f} V")
+        assert m.dc == pytest.approx(0.5, abs=0.1)
+        assert m.rms_ac == pytest.approx(2 * math.sqrt(0.1875), rel=0.05)
+        data = analog.capture(inp, 2.0)
+        print(f"{inp} capture 2 s: {len(data)} samples")
+        assert len(data) == 200_000
+        assert measurement_of(data).dc == pytest.approx(0.5, abs=0.1)
+    finally:
+        analog.disconnect_all()
+
+
 def dio_pairs():
     """HIL_HW_DIO_LOOP=X3.1:X2.1 - logic outputs wired to sense inputs by jumpers."""
     return [tuple(pair.split(":")) for pair in env("HIL_HW_DIO_LOOP").split(",")]
@@ -233,3 +259,34 @@ def test_ad3_dio_loopback(hw_station):
             print(f"{sense_name}: mean polling period {recording.mean_period_s * 1000:.3f} ms")
         finally:
             out.release()
+
+
+def test_ad3_dio_during_scope_acquisition(hw_station):
+    """DIO loopback latency while the scope of the same AD3 records for 2 s."""
+    out_name, sense_name = dio_pairs()[0]
+    channel = analog_discovery(hw_station).resource("ch1")
+    out = hw_station.digital.logic_out(out_name)
+    sense = hw_station.digital.sense(sense_name)
+    result = {}
+    acquisition = threading.Thread(
+        target=lambda: result.update(data=channel.acquire(100_000, 200_000)), daemon=True
+    )
+    try:
+        out.set(False)
+        time.sleep(0.05)
+        low = sense.read()
+        acquisition.start()
+        time.sleep(0.3)  # the acquisition is running
+        latencies = []
+        for _ in range(5):
+            for level, expected in ((True, not low), (False, low)):
+                out.set(level)
+                seen = sense.wait_for(expected, timeout=0.5)
+                latencies.append(seen - out.last_change)
+        assert acquisition.is_alive(), "the toggling must overlap the acquisition"
+        print(f"{out_name} -> {sense_name} during acquisition: max {max(latencies) * 1000:.2f} ms")
+        assert max(latencies) < 0.05
+    finally:
+        out.release()
+        acquisition.join(10)
+    assert len(result["data"]) == 200_000

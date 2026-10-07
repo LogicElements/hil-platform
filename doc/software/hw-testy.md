@@ -19,7 +19,9 @@ Volba `-s` ukáže naměřené hodnoty (zpoždění, perioda čtení, délka vý
 | `test_flash_with_openocd` | `HIL_HW_TARGET`, `HIL_HW_IMAGE`, připojený DUT | flashování a reset přes ST-Link |
 | `test_ad3_generator_loopback` | `HIL_HW_AD3_LOOP=1`, propojky W1→1+ a W2→2+, 1− a 2− na zem, DUT odpojený od `AO.0` | DC 2 V a sinus 1 kHz z obou generátorů změřené scope téhož AD3, dlouhý záznam (200 000 vzorků) v režimu record |
 | `test_analog_multiplexer_loopback` | `HIL_HW_ANALOG_LOOP=AO.1:AI.1,AO.2:AI.3` (nejvýš 2 páry) a propojky mezi svorkami, DUT odpojený (aspoň od `AO.0` a od použitých svorek) | oba generátory přes výstupní multiplexer, měřicí multiplexer a stav bez signálu po odpojení |
+| `test_analog_waveforms_loopback` | `HIL_HW_ANALOG_LOOP` (první pár), propojka, DUT odpojený | obdélník a libovolný průběh přes blok `analog` (DC 0,1 V, RMS 5 %), záznam 2 s (200 000 vzorků) |
 | `test_ad3_dio_loopback` | `HIL_HW_DIO_LOOP` (např. `X3.1:X2.1`), propojka mezi svorkami | zpoždění logic_out → sense (limit 50 ms) a periodu čtení vstupu |
+| `test_ad3_dio_during_scope_acquisition` | `HIL_HW_DIO_LOOP` (první pár), propojka | zpoždění logic_out → sense (limit 50 ms) během 2 s záznamu scope téhož AD3 |
 
 `test_relay_coil_map` spíná postupně všechna relé včetně napájení a poruchových cest, proto běží jen s `HIL_HW_NO_DUT=1`. Proměnné `HIL_HW_NO_DUT` a `HIL_HW_RS485_LOOP` povolí svůj test jen s hodnotou `1`, jiná hodnota test přeskočí.
 
@@ -33,18 +35,13 @@ Pokud mapa coilů nesouhlasí, upravte ve stanovišti `coil_base`, případně `
 
 ## Předpoklady neověřené na hardwaru
 
-Balíček byl vyvinut bez hardwaru. Ovladače jsou ověřené jen proti simulaci a falešným knihovnám (`ModbusSlave` na `sim_serial`, `FakeDwf`, `tests/drivers/fake_openocd.py`). Mapy registrů Waveshare a Quido, stav relé po zapnutí, přesnost `outage()` a latency timer ověřují testy v tabulce výše. U modulu Quido RS 2/32 je ověřená mapa coilů (`coil_base: 0`) a vypnutá relé po zapnutí, mapa vstupů a zpoždění smyčky relé → vstup zatím ne. Flashování a reset přes OpenOCD a ST-Link V3 jsou ověřené na STM32H7A3 s OpenOCD od ST (viz [oživení](oziveni.md#výsledky)). Pro Analog Discovery 3 se navíc předpokládá:
+Balíček byl vyvinut bez hardwaru. Ovladače jsou ověřené jen proti simulaci a falešným knihovnám (`ModbusSlave` na `sim_serial`, `FakeDwf`, `tests/drivers/fake_openocd.py`). Mapy registrů Waveshare a Quido, stav relé po zapnutí, přesnost `outage()` a latency timer ověřují testy v tabulce výše. U modulu Quido RS 2/32 je ověřená mapa coilů (`coil_base: 0`) a vypnutá relé po zapnutí, mapa vstupů a zpoždění smyčky relé → vstup zatím ne. Flashování a reset přes OpenOCD a ST-Link V3 jsou ověřené na STM32H7A3 s OpenOCD od ST (viz [oživení](oziveni.md#výsledky)). U Analog Discovery 3 jsou smyčkami bez relé ověřené: úroveň `funcDC` z offsetu, změna průběhu za běhu (režim 3), 0 V po zastavení (režim 0), frekvence scope, režim record bez omezení délky, ustálení offsetu, tolerance měření, obdélník a libovolný průběh, přepínání výstupu DIO s čtením vstupu, čtení DIO během měření scope a vysoká impedance DIO po zavření zařízení (`FDwfDeviceClose`). Po ukončení procesu bez zavření zařízení ale AD3 linky DIO dál budí až do dalšího otevření (viz [nasazení](nasazeni.md)). Navíc se předpokládá:
 
-- úroveň průběhu `funcDC` vychází z offsetu generátoru,
-- `FDwfAnalogOutConfigure` v režimu 3 změní běžící průběh bez skoku a režim 0 nechá na výstupu 0 V,
-- `FDwfAnalogInFrequencyGet` vrací zaokrouhlenou frekvenci už před Configure,
-- režim record s délkou 0 běží bez omezení délky,
-- offset scope se ustálí do 2 s po otevření (`scope_warmup_s`),
-- tolerance měření 0,1 V u DC a 5 % u RMS stačí,
+- změna průběhu v režimu 3 je bez skoku (ověřena jen výsledná úroveň),
 - přepínání výstupního a měřicího multiplexeru funguje se skutečnými relé,
-- zavření zařízení (`FDwfDeviceClose` s vypnutím při zavření) vrátí linky DIO do vysoké impedance,
-- `FDwfDigitalIOOutputSet`, potom `FDwfDigitalIOOutputEnableSet` a jeden `FDwfDigitalIOConfigure` přepne výstup bez zákmitu,
+- generátory se po ukončení procesu bez zavření zařízení chovají stejně jako DIO (běží dál až do dalšího otevření), ověřené je to jen u DIO,
+- `FDwfDigitalIOOutputSet`, potom `FDwfDigitalIOOutputEnableSet` a jeden `FDwfDigitalIOConfigure` přepne výstup bez zákmitu (ověřeno jen přepnutí),
 - `FDwfDigitalIOReset` a povolení výstupů 0 udělá ze všech linek vstupy,
-- `FDwfDigitalIOInputStatus` vrací úroveň na pinu i u buzeného výstupu.
+- `FDwfDigitalIOInputStatus` vrací úroveň na pinu i u buzeného výstupu (smyčka čte jinou linku).
 
-Většinu z toho ověří `test_ad3_generator_loopback`, `test_analog_multiplexer_loopback` a `test_ad3_dio_loopback`. Pokud předpoklad neplatí, opravuje se ovladač `analog_discovery_3` (`drivers/dwf.py`).
+Multiplexer s relé ověří `test_analog_multiplexer_loopback` na stanovišti s relé. Pokud předpoklad neplatí, opravuje se ovladač `analog_discovery_3` (`drivers/dwf.py`).

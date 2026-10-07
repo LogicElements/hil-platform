@@ -26,7 +26,7 @@ Služba [deploy/systemd/hil-safe.service](../../deploy/systemd/hil-safe.service)
 
 ### Ukončení běžících testů
 
-SIGINT (Ctrl+C), SIGTERM (`systemctl stop`, zrušení jobu v GitHub Actions) a SIGHUP (zavřený terminál) běh testů přeruší a úklid nastaví úplný bezpečný stav. Obsluha signálu sama na sběrnici nesahá. Rozpracovaná transakce se přeruší a sběrnice zůstane potichu až do konce jejího timeoutu, aby se pozdní odpověď modulu nesrazila s vypnutím napájení. Každý další signál od prvního až do zavření stanoviště se jen zaloguje, proces pak jde zastavit jen signálem SIGKILL, který systemd i CI pošlou po vypršení svého timeoutu. Pod `nohup` zůstává SIGHUP ignorovaný. Při `atexit` (konec interpretu bez úklidu) se vypne aspoň napájení DUT.
+SIGINT (Ctrl+C), SIGTERM (`systemctl stop`, zrušení jobu v GitHub Actions) a SIGHUP (zavřený terminál) běh testů přeruší a úklid nastaví úplný bezpečný stav. Obsluha signálu sama na sběrnici nesahá. Rozpracovaná transakce se přeruší a sběrnice zůstane potichu až do konce jejího timeoutu, aby se pozdní odpověď modulu nesrazila s vypnutím napájení. Každý další signál od prvního až do zavření stanoviště se jen zaloguje, proces pak jde zastavit jen signálem SIGKILL, který systemd i CI pošlou po vypršení svého timeoutu. Pod `nohup` zůstává SIGHUP ignorovaný. Při `atexit` (konec interpretu bez úklidu) se vypne aspoň napájení DUT. Po SIGKILL nebo pádu interpretu neproběhne nic: relé a Analog Discovery 3 (výstupy DIO ověřené na HW) drží poslední stav až do dalšího otevření stanoviště. Proto má job v CI po testech krok `hil safe --station …` s `if: always()`, aby se stanoviště uklidilo i po zabitém procesu.
 
 ## Windows (vývoj)
 

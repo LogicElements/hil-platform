@@ -29,7 +29,7 @@ Zařízení si nastaví uživatel sám podle dokumentace výrobce, balíček je 
 | 3 | modul digitálních vstupů (`modbus_di`) | nahrazeno linkami DIO Analog Discovery 3 (bod 6), Modbus modul je budoucí alternativa pro jiné úrovně než 3,3 V | odloženo |
 | 4 | napájení přes zdroj HDR | `outage()`, odchylka pod 10 ms | čeká |
 | 5 | FT4232H | latency timer, monitor RS-485 na 921 600 Bd | čeká |
-| 6 | Analog Discovery 3 | funkce WaveForms SDK, smyčka generátor → scope, DIO: smyčka logic_out → sense (`test_ad3_dio_loopback`) | čeká |
+| 6 | Analog Discovery 3 | funkce WaveForms SDK, smyčka generátor → scope, DIO: smyčka logic_out → sense (`test_ad3_dio_loopback`) | hotovo |
 | 7 | ST-Link a OpenOCD | flashování a reset DUT | hotovo |
 | 8 | analogový multiplexer | oba generátory přes relé, měřicí multiplexer | čeká |
 | 9 | celé stanoviště na Linuxu | udev, služba `hil safe`, `hil check --probe` | čeká |
@@ -137,6 +137,122 @@ Test měří zpoždění od sepnutí relé po změnu vstupu (limit 50 ms) a prů
 - Úpravy konfigurace do `stations/bench-quido.yaml`, později do `stations/lab-a.yaml`.
 - V [HW testech](hw-testy.md) škrtnout ověřené předpoklady.
 
+## 6. Analog Discovery 3
+
+Připojení: AD3 přes USB vývojového PC, sériové číslo `210415BB5F29`. Musí být nainstalovaný WaveForms (s runtime Adept, knihovna `dwf.dll`) a aplikace WaveForms musí být zavřená, jinak je zařízení obsazené. AD3 se oživuje samo, bez relé: oba generátory jsou na přímých svorkách a DIO i analogové kanály jsou propojené smyčkami.
+
+### Potřebné vybavení
+
+- Analog Discovery 3 s kabelem svorek (flywires) a propojkami.
+- Nainstalovaný balíček `hil` ve venv.
+
+### Zapojení smyček
+
+| Smyčka | Propojka | Svorky stanoviště |
+|---|---|---|
+| generátor 1 → scope 1 | W1 → 1+, 1− → GND | `AO.0` → `AI.1` |
+| generátor 2 → scope 2 | W2 → 2+, 2− → GND | `AO.1` → `AI.3` |
+| DIO výstupy → vstupy | DIO 8 → DIO 0, 9 → 1, 10 → 2, 11 → 3, 12 → 4, 13 → 5 | `X3.1` → `X2.1` až `X3.6` → `X2.6` |
+
+Propojka DIO spojuje výstup a vstup napřímo, výstup budí obě úrovně, pull-up není potřeba.
+
+### Krok 1: První komunikace
+
+```
+.venv/Scripts/python -c "from hil.drivers.dwf import DwfLibrary; print(DwfLibrary().devices())"
+```
+
+Očekávané: jedno zařízení `Analog Discovery 3` se sériovým číslem a `in_use=False`. Když je seznam prázdný, chybí runtime Adept nebo kabel; když je `in_use=True`, běží aplikace WaveForms.
+
+### Krok 2: Stanoviště pro zkušební stůl
+
+`stations/bench-ad3.yaml` obsahuje AD3 se sériovým číslem, DIO 8 až 13 jako výstupy `X3.1` až `X3.6`, DIO 0 až 5 jako vstupy `X2.1` až `X2.6` (bez `dio_invert`, vstup čte úroveň výstupu), přímé svorky `AO.0` (generátor 1) a `AO.1` (generátor 2) a vstupy `AI.1` (scope 1) a `AI.3` (scope 2) bez relé.
+
+```
+.venv/Scripts/hil check --station stations/bench-ad3.yaml --probe
+.venv/Scripts/hil info --station stations/bench-ad3.yaml
+```
+
+### Krok 3: Smyčka generátor → scope
+
+Zapojené smyčky W1 → 1+ a W2 → 2+.
+
+```
+$env:HIL_HW_STATION = "stations/bench-ad3.yaml"
+$env:HIL_HW_AD3_LOOP = "1"
+.venv/Scripts/python -m pytest tests/hw -v -s -k test_ad3_generator_loopback
+```
+
+Test pustí z obou generátorů DC 2 V a sinus 1 kHz s amplitudou 1 V a změří je scope (tolerance 0,1 V u DC, 5 % u RMS), nakonec dlouhý záznam 200 000 vzorků v režimu record. Ověří předpoklady o `funcDC`, změně průběhu za běhu, frekvenci scope a režimu record.
+
+### Krok 4: Analogové svorky přes blok `analog`
+
+Stejné zapojení, test jde přes svorky stanoviště místo ovladače:
+
+```
+$env:HIL_HW_ANALOG_LOOP = "AO.0:AI.1,AO.1:AI.3"
+.venv/Scripts/python -m pytest tests/hw -v -s -k test_analog_multiplexer_loopback
+```
+
+Na přímých svorkách nepřepíná žádné relé. Test ověří úrovně 1,5 V a 2,5 V na obou svorkách a že po `disconnect_all()` (zastavení generátorů) je na vstupech pod 0,2 V, tj. režim 0 nechá na výstupu 0 V. Multiplexer s relé se ověří až v bodě 8.
+
+Průběhy obdélník a libovolný a dlouhý záznam přes blok `analog` (použije první pár z `HIL_HW_ANALOG_LOOP`):
+
+```
+.venv/Scripts/python -m pytest tests/hw -v -s -k test_analog_waveforms_loopback
+```
+
+Test pustí obdélník 500 Hz (1 V, offset 0,5 V, střída 30 %) a libovolný průběh 1 kHz (impuls 0 V / 2 V, střída 25 %), porovná střední hodnotu a RMS s výpočtem a nakonec zaznamená 2 s (200 000 vzorků).
+
+### Krok 5: Smyčka DIO
+
+Zapojené propojky DIO 8 až 13 → DIO 0 až 5.
+
+```
+$env:HIL_HW_DIO_LOOP = "X3.1:X2.1,X3.2:X2.2,X3.3:X2.3,X3.4:X2.4,X3.5:X2.5,X3.6:X2.6"
+.venv/Scripts/python -m pytest tests/hw -v -s -k test_ad3_dio_loopback
+```
+
+Test u každé dvojice nastaví výstup na 0 a 1, měří zpoždění změny vstupu (limit 50 ms) a průměrnou periodu čtení vstupu, nakonec výstup uvolní. Ověří přepínání výstupu, čtení úrovně a mapu linek. Že vstup bez `dio_invert` čte úroveň výstupu (1 → `True`), ukáže výpis `-s` nebo krátký pokus:
+
+```
+.venv/Scripts/python -c "from hil.station import Station; s = Station.from_files('stations/bench-ad3.yaml'); s.__enter__(); o = s.digital.logic_out('X3.1'); i = s.digital.sense('X2.1'); o.set(True); print(i.read()); o.set(False); print(i.read()); s.__exit__(None, None, None)"
+```
+
+Očekávané: `True`, potom `False`.
+
+Čtení DIO během dlouhého měření scope (první pár z `HIL_HW_DIO_LOOP`):
+
+```
+.venv/Scripts/python -m pytest tests/hw -v -s -k test_ad3_dio_during_scope_acquisition
+```
+
+Test spustí záznam scope na 2 s a během něj pětkrát přepne výstup. Zpoždění smyčky musí zůstat pod 50 ms, čtení DIO tedy nečeká na konec měření.
+
+### Krok 6: Linky DIO po zavření zařízení
+
+Ověří, že zavřené AD3 nebudí výstupy (DUT nedostane napětí, když stanoviště skončí nebo spadne). Softwarem to ověřit nejde, protože každé otevření AD3 linky resetuje. Měří se multimetrem na DIO 8 proti GND, mezi DIO 8 a GND je odpor asi 10 kΩ (vysoká impedance pak ukáže 0 V, ne plovoucí napětí). Propojka DIO 8 → DIO 0 může zůstat.
+
+a) Zavření zařízení bez uvolnění výstupu (`FDwfDeviceClose`):
+
+```
+.venv/Scripts/python -c "from hil.station import Station; s = Station.from_files('stations/bench-ad3.yaml'); s.__enter__(); s.digital.logic_out('X3.1').set(True); input('DIO 8 = 3,3 V? Enter zavre AD3'); s.devices['ad3'].close(); input('DIO 8 = 0 V? Enter skonci')"
+```
+
+b) Proces ukončený bez zavření (pád, zabití):
+
+```
+.venv/Scripts/python -c "import os; from hil.station import Station; s = Station.from_files('stations/bench-ad3.yaml'); s.__enter__(); s.digital.logic_out('X3.1').set(True); input('DIO 8 = 3,3 V? Enter ukonci proces'); os._exit(1)"
+```
+
+Očekávané v obou případech: při zapnutém výstupu 3,3 V, po zavření nebo ukončení 0 V. Případ a) na AD3 platí, případ b) ne: výstup zůstane buzený až do dalšího otevření (viz [Výsledky](#výsledky) a [nasazení](nasazeni.md)).
+
+### Krok 7: Zápis výsledků
+
+- Výsledky do tabulky níže, naměřené hodnoty z výstupu `-s`.
+- V [HW testech](hw-testy.md) škrtnout ověřené předpoklady o AD3.
+- Konfiguraci AD3 (sériové číslo) převzít do `stations/lab-a.yaml`.
+
 ## 7. ST-Link a OpenOCD
 
 Připojení: deska NUCLEO-H7A3ZI-Q (STM32H7A3, Cortex-M7, 2 MB flash) s vestavěným ST-Link V3 (firmware V3J16M7) přes USB vývojového PC. Typ desky a čipu ukáže `STM32_Programmer_CLI -l stlink` a `STM32_Programmer_CLI -c port=SWD mode=HOTPLUG` (STM32CubeCLT).
@@ -168,3 +284,12 @@ $env:HIL_HW_IMAGE = "examples/AmplifFilter-App.hex"
 | Quido RS 2/32, krok 4 | 6. 10. 2026 | prošlo | `test_relay_coil_map` prošel (3,6 s). Po sepnutí coilů 0, 1, 15 a 31 svítí LED výstupů 1, 2, 16 a 32, mapa odpovídá `coil_base: 0`. Zápis více coilů funkcí 0x0F funguje. |
 | Quido RS 2/32, krok 5 | 6. 10. 2026 | odloženo | smyčka relé → vstup zatím nezapojená; mapa vstupů, varianta napětí vstupů a zpoždění proti limitu 50 ms zůstávají neověřené. |
 | ST-Link a OpenOCD | 6. 10. 2026 | prošlo | NUCLEO-H7A3ZI-Q, OpenOCD od ST z CubeIDE 1.12. Reset přes `hil` 1,9 s, `test_flash_with_openocd` s lokálním `examples/AmplifFilter-App.hex` 5,0 s (program, verify, reset). Nutné `interface/stlink-dap.cfg` a `reset_config srst_only srst_nogate`, bez nich selže připojení nebo `reset init`. Neověřeno s OpenOCD z distribuce (Linux, upstream skripty). |
+| Analog Discovery 3, krok 1 | 7. 10. 2026 | prošlo | `DwfLibrary().devices()` najde `Analog Discovery 3`, SN `210415BB5F29`, WaveForms s runtime Adept nainstalovaný. |
+| Analog Discovery 3, krok 2 | 7. 10. 2026 | prošlo | `hil check --probe` otevře AD3, `hil info` ukazuje X2.1 až X2.6, X3.1 až X3.6, AO.0, AO.1, AI.1 a AI.3 zapojené. |
+| Analog Discovery 3, krok 3 | 7. 10. 2026 | prošlo | `test_ad3_generator_loopback`: generátor 1 → scope 1 DC 2,0026 V, sinus 1 kHz/1 V RMS 0,7077 V (DC −0,004 V); generátor 2 → scope 2 DC 1,9779 V, RMS 0,7076 V (DC −0,029 V). Kanál 2 má stálý posun asi −25 mV, v toleranci. Záznam 200 000 vzorků v režimu record prošel. |
+| Analog Discovery 3, krok 4 | 7. 10. 2026 | prošlo | `AO.0` 1,5 V → `AI.1` 1,5054 V, `AO.1` 2,5 V → `AI.3` 2,4804 V; po `disconnect_all()` −0,005 V a −0,025 V. |
+| Analog Discovery 3, krok 5 | 7. 10. 2026 | prošlo | všech 6 dvojic DIO: zpoždění 0,25 až 0,60 ms (limit 50 ms), mapa linek sedí, vstup bez `dio_invert` čte úroveň výstupu. Průměrná perioda `record()` 15 ms místo požadované 1 ms: zrnitost `threading.Event.wait` na Windows, ne omezení AD3. |
+| Analog Discovery 3, krok 4 (průběhy) | 7. 10. 2026 | prošlo | `test_analog_waveforms_loopback`: obdélník DC 0,0972 V (výpočet 0,1), RMS 0,9132 V (0,9165); libovolný průběh DC 0,4964 V (0,5), RMS 0,8593 V (0,8660); záznam 2 s = 200 000 vzorků. |
+| Analog Discovery 3, krok 5 (souběh se scope) | 7. 10. 2026 | prošlo | `test_ad3_dio_during_scope_acquisition`: během 2 s záznamu scope nejvyšší zpoždění smyčky DIO 1,36 ms. Po opravě `record()` (`time.sleep` místo `Event.wait`) je perioda čtení vstupu 1,75 ms místo 15 ms. |
+| Analog Discovery 3, krok 6 a) | 7. 10. 2026 | prošlo | DIO 8 se zapnutým výstupem 3,3 V, po `close()` bez uvolnění výstupu (`FDwfDeviceClose`) 0 V přes 10 kΩ na GND. |
+| Analog Discovery 3, krok 6 b) | 7. 10. 2026 | neprošlo (omezení) | po ukončení procesu bez zavření (`os._exit`) zůstalo na DIO 8 asi 3 V. AD3 drží poslední stav DIO až do dalšího otevření, které linky resetuje. Stejně se po SIGKILL chovají relé, úklid zajistí `hil safe` nebo další běh. |

@@ -136,7 +136,8 @@ class SenseSignal(Signal):
                         recording.changes.append((now, value))
                         last = value
                     started.set()
-                    stop.wait(period_s)
+                    # not stop.wait(): Event.wait has ~15.6 ms granularity on Windows
+                    time.sleep(period_s)
             except Exception as exc:
                 errors.append(exc)
             finally:

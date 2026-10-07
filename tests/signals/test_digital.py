@@ -73,6 +73,21 @@ def test_sense_record(loop):
     assert recording.mean_period_s > 0
 
 
+class _FastBank:
+    name = "fast"
+
+    def read(self, index):
+        return False
+
+
+def test_record_keeps_a_millisecond_period():
+    # threading.Event.wait has ~15.6 ms granularity on Windows, time.sleep does not
+    sense = SenseSignal("X2.1", Recorder(), DigitalInput(_FastBank(), 0))
+    with sense.record(period_s=0.001) as recording:
+        time.sleep(0.3)
+    assert recording.mean_period_s < 0.008
+
+
 class _StuckBank:
     name = "stuck"
 
