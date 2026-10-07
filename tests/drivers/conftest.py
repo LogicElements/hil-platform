@@ -109,6 +109,16 @@ class FakeDwf:
         self.lost = 0
         self._polls = 0
         self._recorded = 0
+        # digital I/O as bit masks: applied output levels and enabled outputs, the values
+        # set but not applied yet (FDwfDigitalIOConfigure applies them), levels driven
+        # from outside on the lines that are inputs
+        self.dio_output = 0
+        self.dio_enable = 0
+        self.dio_pending_output = 0
+        self.dio_pending_enable = 0
+        self.dio_external = 0
+        # while True the scope reports a running acquisition (concurrency tests)
+        self.hold_scope = False
 
     def names(self):
         return [name for name, _ in self.calls]
@@ -229,6 +239,9 @@ class FakeDwf:
         return round(self.record_length * self.rate)
 
     def _AnalogInStatus(self, handle, read_data, state):
+        if self.hold_scope:
+            _set(state, DWF_RUNNING)
+            return
         self._polls += 1
         if self.mode == 0:
             done = self._polls >= self.polls_until_done
@@ -250,6 +263,27 @@ class FakeDwf:
             buf[i] = self.signal[channel.value](start + i)
         if self.mode == 3:
             self._recorded += count.value
+
+    def _DigitalIOReset(self, handle):
+        self.dio_pending_output = 0
+        self.dio_pending_enable = 0
+
+    def _DigitalIOOutputSet(self, handle, mask):
+        self.dio_pending_output = mask.value
+
+    def _DigitalIOOutputEnableSet(self, handle, mask):
+        self.dio_pending_enable = mask.value
+
+    def _DigitalIOConfigure(self, handle):
+        self.dio_output = self.dio_pending_output
+        self.dio_enable = self.dio_pending_enable
+
+    def _DigitalIOStatus(self, handle):
+        pass
+
+    def _DigitalIOInputStatus(self, handle, levels):
+        driven = self.dio_output & self.dio_enable
+        _set(levels, (driven | (self.dio_external & ~self.dio_enable)) & 0xFFFF)
 
 
 @pytest.fixture

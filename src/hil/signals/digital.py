@@ -1,4 +1,4 @@
-"""Binary stimulus (switch) and binary response (sense) terminals."""
+"""Binary stimulus (switch, logic_out) and binary response (sense) terminals."""
 
 import logging
 import threading
@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from hil import clock
 from hil.errors import DeviceTimeout, WaitTimeout
 from hil.recording import Recorder
-from hil.resources import DigitalInput, RelayChannel
+from hil.resources import DigitalInput, LogicOutput, RelayChannel
 from hil.signals.base import Signal
 from hil.signals.timing import precise_sleep
 
@@ -46,6 +46,36 @@ class SwitchSignal(Signal):
 
     def safe_state(self) -> None:
         self.set(False)
+
+
+class LogicOutSignal(Signal):
+    """Logic output of the station driving a 3.3 V logic input of the DUT."""
+
+    kind = "logic_out"
+
+    def __init__(self, name: str, recorder: Recorder, output: LogicOutput) -> None:
+        super().__init__(name, recorder)
+        self.output = output
+        # the driven level, None while released (high impedance)
+        self.state: bool | None = None
+        self.last_change: float | None = None
+
+    def set(self, value: bool) -> None:
+        """Drive the line to logic 1 (True) or 0 (False)."""
+        self.output.set(value)
+        self.state = value
+        self.last_change = clock.now()
+        self._event("set", state=value)
+
+    def release(self) -> None:
+        """Stop driving the line (high impedance)."""
+        self.output.release()
+        self.state = None
+        self.last_change = clock.now()
+        self._event("release")
+
+    def safe_state(self) -> None:
+        self.release()
 
 
 @dataclass

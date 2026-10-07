@@ -101,7 +101,11 @@ def _info(station: Station) -> int:
         print(f"  {name:12} {kind:14} {state}")
     blocks = {
         "power": list(station.power.signals),
-        "digital": [*station.digital.switches, *station.digital.senses],
+        "digital": [
+            *station.digital.switches,
+            *station.digital.senses,
+            *station.digital.logic_outs,
+        ],
         "faults": list(station.faults.paths),
         "comm": [*station.comm.serials, *station.comm.rs485s, *station.comm.monitors],
         "debug": list(station.debug.signals),

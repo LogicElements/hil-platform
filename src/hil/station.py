@@ -19,6 +19,7 @@ from hil.config.models import (
     AnalogOutTerminal,
     DebugTerminal,
     FaultPathTerminal,
+    LogicOutTerminal,
     PowerTerminal,
     Rs485MonitorTerminal,
     Rs485Terminal,
@@ -36,6 +37,7 @@ from hil.resources import (
     AwgChannel,
     DebugProbe,
     DigitalInput,
+    LogicOutput,
     RelayChannel,
     ScopeChannel,
     SerialLink,
@@ -46,6 +48,7 @@ from hil.signals import (
     AnalogRouter,
     DebugSignal,
     FaultPath,
+    LogicOutSignal,
     PowerSignal,
     Rs485Monitor,
     Rs485Signal,
@@ -92,7 +95,12 @@ class Station:
         }
         terminals = self.profile.terminals
         self.power = PowerBlock(self._of(PowerSignal), terminals)
-        self.digital = DigitalBlock(self._of(SwitchSignal), self._of(SenseSignal), terminals)
+        self.digital = DigitalBlock(
+            self._of(SwitchSignal),
+            self._of(SenseSignal),
+            terminals,
+            logic_outs=self._of(LogicOutSignal),
+        )
         self.faults = FaultMatrix(self._of(FaultPath), terminals)
         self.comm = CommBlock(
             self._of(SerialSignal), self._of(Rs485Signal), self._of(Rs485Monitor), terminals
@@ -150,6 +158,8 @@ class Station:
                 return SwitchSignal(name, rec, self._resource(name, relay, RelayChannel))
             case SenseTerminal(input=input_ref):
                 return SenseSignal(name, rec, self._resource(name, input_ref, DigitalInput))
+            case LogicOutTerminal(output=output):
+                return LogicOutSignal(name, rec, self._resource(name, output, LogicOutput))
             case FaultPathTerminal() as fault:
                 short = fault.short
                 return FaultPath(

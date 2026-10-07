@@ -58,6 +58,31 @@ class DigitalInput:
         return f"{self.bank.name}.{self.index}"
 
 
+class OutputBank(Protocol):
+    """A device with numbered logic outputs: each drives a level or is released."""
+
+    name: str
+
+    def drive(self, index: int, value: bool) -> None: ...
+
+    def release(self, index: int) -> None: ...
+
+
+@dataclass(frozen=True)
+class LogicOutput:
+    bank: OutputBank
+    index: int
+
+    def set(self, value: bool) -> None:
+        self.bank.drive(self.index, value)
+
+    def release(self) -> None:
+        self.bank.release(self.index)
+
+    def __str__(self) -> str:
+        return f"{self.bank.name}.{self.index}"
+
+
 def set_relays(changes: Iterable[tuple[RelayChannel, bool]]) -> None:
     """Apply relay changes with one ``set_many`` call per bank."""
     per_bank: dict[int, tuple[RelayBank, dict[int, bool]]] = {}

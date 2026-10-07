@@ -27,12 +27,14 @@ Výsledek výběru platformy pro [specifikaci](../hil-specifikace.md). Co koupit
   │                         měření (2 kanály) ◄── relé multiplexer ◄── výstupy DUT (±24 V)
   ├─ FT4232H ── RS-485 aktivní, RS-485 pasivní záchyt, UART log, konzole
   ├─ USB–RS-485 ── sběrnice relé modulů Waveshare (adresy 1–255)
-  ├─ vstupní modul ── 8 výstupů DUT (suché kontakty), LED
+  ├─ (DIO Analog Discovery 3) ── 8 výstupů DUT (suché kontakty s pull-upem, logika 3,3 V), 6 logických vstupů DUT
   └─ ST-Link ── JTAG/SWD DUT
 
 Napájení DUT: 2× HDR-30-24 v sérii (±24 V) ── relé (oba póly) ── pojistky ── DUT
 Poruchová matice: relé v cestách mezi komponentami DUT (napájení, RS-485 A/B, digitální signály)
 ```
+
+Digitální výstupy DUT čte a logické vstupy DUT budí 16 linek DIO Analog Discovery 3 (LVCMOS 3,3 V). Výstupy DUT s jinou úrovní potřebují převodník úrovně nebo Modbus modul vstupů. AD3 není galvanicky oddělený, linky potřebují ochranu (sériové odpory, omezení napětí), protože poruchová matice může při chybě přivést na linku napětí DUT.
 
 ### Relé multiplexer
 

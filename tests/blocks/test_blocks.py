@@ -2,9 +2,10 @@ import pytest
 
 from hil.blocks import DigitalBlock, FaultMatrix, PowerBlock
 from hil.drivers.sim.relay import SimRelay, SimRelayConfig
-from hil.errors import DeviceError, SignalUnavailable
+from hil.errors import ConfigError, DeviceError, SignalUnavailable
 from hil.recording import Recorder
-from hil.signals import FaultPath, PowerSignal, SwitchSignal
+from hil.resources import LogicOutput
+from hil.signals import FaultPath, LogicOutSignal, PowerSignal, SwitchSignal
 
 
 def test_unknown_terminal_is_unavailable():
@@ -44,3 +45,24 @@ def test_restore_all(relay_bank):
     matrix.open("F2")
     matrix.restore_all()
     assert (f1.state, f2.state) == ("ok", "ok")
+
+
+class _Outputs:
+    name = "dio"
+
+    def drive(self, index, value):
+        pass
+
+    def release(self, index):
+        pass
+
+
+def test_digital_block_logic_out():
+    signal = LogicOutSignal("X3.1", Recorder(), LogicOutput(_Outputs(), 8))
+    profile = {"X3.1": "logic_out", "X3.2": "logic_out", "X2.1": "sense"}
+    block = DigitalBlock({}, {}, profile, logic_outs={"X3.1": signal})
+    assert block.logic_out("X3.1") is signal
+    with pytest.raises(SignalUnavailable, match=r"no logic_out terminal 'X3.2'"):
+        block.logic_out("X3.2")
+    with pytest.raises(ConfigError, match="is a sense terminal, not a logic_out"):
+        block.logic_out("X2.1")

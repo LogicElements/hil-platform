@@ -1,15 +1,17 @@
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from hil.config.models import (
     AnalogOutTerminal,
     DebugParams,
     DutConfig,
     FaultPathTerminal,
+    LogicOutTerminal,
     PowerTerminal,
     Profile,
     SerialParams,
     StationConfig,
+    StationTerminal,
     signal_params,
     terminal_refs,
 )
@@ -261,3 +263,12 @@ def test_connect_relay_used_twice():
                 "AI.2": {"kind": "analog_in", "scope": "ad3.ch2", "connect": "rel2.8"},
             }
         )
+
+
+def test_logic_out_terminal():
+    adapter = TypeAdapter(StationTerminal)
+    terminal = adapter.validate_python({"kind": "logic_out", "output": "ad3.dio8"})
+    assert isinstance(terminal, LogicOutTerminal)
+    assert str(terminal.output) == "ad3.dio8"
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"kind": "logic_out"})

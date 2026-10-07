@@ -296,3 +296,24 @@ def test_open_without_best_effort_fails_fast(tmp_path):
     with pytest.raises(DeviceNotFound, match="relay module not connected"):
         station.open()
     assert station._opened == []
+
+
+@pytest.mark.parametrize(
+    ("terminal", "message"),
+    [
+        ("X2.1: {kind: sense, input: ad3.dio8}", r"ad3\.dio8 is not a DigitalInput"),
+        ("X3.1: {kind: logic_out, output: ad3.dio0}", r"ad3\.dio0 is not a LogicOutput"),
+    ],
+)
+def test_dio_line_direction_must_match_terminal(tmp_path, terminal, message):
+    path = tmp_path / "s.yaml"
+    path.write_text(
+        "name: s\n"
+        "profile: standard-v1\n"
+        "devices:\n"
+        "  ad3: {driver: sim_ad3, dio_outputs: [8]}\n"
+        "terminals:\n"
+        f"  {terminal}\n"
+    )
+    with pytest.raises(ConfigError, match=message):
+        Station.from_files(path)

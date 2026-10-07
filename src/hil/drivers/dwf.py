@@ -10,11 +10,18 @@ running generator would reach the DUT parameter by parameter (e.g. the new ampli
 around the old offset) and a stopped generator would put each intermediate offset
 on its idle output. With it off, settings take effect only on
 ``FDwfAnalogOutConfigure`` / ``FDwfAnalogInConfigure``, i.e. all at once.
+
+Every SDK call holds a process-wide lock, together with reading the error message of
+a failed call (the message is per process, and every ``open()`` creates a new
+``DwfLibrary``). The lock is held per call,
+not per operation: a scope acquisition releases it between status polls, so digital
+I/O of the same device is not blocked by a long acquisition.
 """
 
 import ctypes
 import logging
 import sys
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -49,6 +56,9 @@ _FUNCTIONS = {"dc": FUNC_DC, "sine": FUNC_SINE, "square": FUNC_SQUARE, "arbitrar
 _POLL_S = 0.001
 
 _log = logging.getLogger("hil.drivers.dwf")
+
+# lock of all SDK calls in the process, see the module docstring
+_LOCK = threading.RLock()
 
 # loader of the shared library; the tests replace it with a fake library
 _load: Callable[[str], Any] = ctypes.CDLL
@@ -110,14 +120,19 @@ class DwfLibrary:
             ) from exc
         # generators started and not stopped, as (handle, channel)
         self._running: set[tuple[int, int]] = set()
+        # process-wide, not per instance: FDwfGetLastErrorMsg is per process and every
+        # open() creates a new DwfLibrary
+        self._lock = _LOCK
 
     def _call(self, function: str, *args: Any) -> None:
-        if not getattr(self._dll, function)(*args):
-            raise DeviceError(f"WaveForms {function} failed: {self.last_error()}")
+        with self._lock:
+            if not getattr(self._dll, function)(*args):
+                raise DeviceError(f"WaveForms {function} failed: {self.last_error()}")
 
     def last_error(self) -> str:
         buffer = ctypes.create_string_buffer(512)
-        self._dll.FDwfGetLastErrorMsg(buffer)
+        with self._lock:
+            self._dll.FDwfGetLastErrorMsg(buffer)
         return buffer.value.decode(errors="replace").strip() or "unknown error"
 
     # --- devices --------------------------------------------------------
@@ -154,7 +169,8 @@ class DwfLibrary:
             # settings take effect only on Configure (see the module docstring)
             self._call("FDwfDeviceAutoConfigureSet", handle, ctypes.c_int(0))
         except BaseException:
-            self._dll.FDwfDeviceClose(handle)
+            with self._lock:
+                self._dll.FDwfDeviceClose(handle)
             raise
         return handle.value
 
@@ -318,8 +334,33 @@ class DwfLibrary:
                 else:
                     time.sleep(_POLL_S)
         finally:
-            self._dll.FDwfAnalogInConfigure(h, ctypes.c_int(0), ctypes.c_int(0))
+            with self._lock:
+                self._dll.FDwfAnalogInConfigure(h, ctypes.c_int(0), ctypes.c_int(0))
         data = np.concatenate(chunks) if chunks else np.empty(0, dtype=np.float64)
         if len(data) < n:
             raise DeviceError(f"scope record returned {len(data)} of {n} samples")
         return data[:n]
+
+    # --- digital I/O ----------------------------------------------------
+
+    def dio_reset(self, handle: int) -> None:
+        """Make all digital lines inputs (high impedance)."""
+        h = ctypes.c_int(handle)
+        self._call("FDwfDigitalIOReset", h)
+        self._call("FDwfDigitalIOOutputEnableSet", h, ctypes.c_uint(0))
+        self._call("FDwfDigitalIOConfigure", h)
+
+    def dio_write(self, handle: int, output: int, enable: int) -> None:
+        """Set the output levels, then the enabled outputs; both take effect at once."""
+        h = ctypes.c_int(handle)
+        self._call("FDwfDigitalIOOutputSet", h, ctypes.c_uint(output))
+        self._call("FDwfDigitalIOOutputEnableSet", h, ctypes.c_uint(enable))
+        self._call("FDwfDigitalIOConfigure", h)
+
+    def dio_read(self, handle: int) -> int:
+        """Levels of all digital lines as a bit mask (line 0 is bit 0)."""
+        h = ctypes.c_int(handle)
+        levels = ctypes.c_uint()
+        self._call("FDwfDigitalIOStatus", h)
+        self._call("FDwfDigitalIOInputStatus", h, ctypes.byref(levels))
+        return levels.value

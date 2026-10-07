@@ -90,7 +90,8 @@ class WaveshareRelay32(Device):
 | Prostředek | Rozhraní | Poskytuje |
 |---|---|---|
 | `RelayChannel` | `set(bool)`, `get()`; banka relé (`RelayBank`) má `set_many({index: bool})` jedním rámcem, funkce `set_relays()` seskupí změny více kanálů po bankách | Waveshare 32-ch, Quido RS 2/32, sim |
-| `DigitalInput` | `read() -> bool`; `modbus_di` navíc `read_all()` | `modbus_di`, Quido vstupy, sim |
+| `DigitalInput` | `read() -> bool`; `modbus_di` navíc `read_all()` | `modbus_di`, Quido vstupy, Analog Discovery 3 (DIO), sim |
+| `LogicOutput` | `set(bool)`, `release()`; banka (`OutputBank`) má `drive(index, value)` a `release(index)` | Analog Discovery 3 (DIO), sim |
 | `SerialLink` | `open(params, timeout) -> serial.Serial`, `params` je `SerialParams` (parametry linky z `dut.yaml`) | `serial_ports`, sim |
 | `AwgChannel` | `sine`, `square`, `dc`, `arbitrary`, `apply(Waveform)`, `start()`, `stop()` | Analog Discovery 3, sim |
 | `ScopeChannel` | `acquire(rate, n) -> numpy.ndarray` | Analog Discovery 3, sim |
@@ -106,7 +107,7 @@ Volby a kanály ovladačů jsou v [konfigurace.md](konfigurace.md#stanoviště).
 | `waveshare_relay32` | 32 coilů. Adresa prvního coilu a způsob zápisu jsou volby s výchozí hodnotou (coily 0 až 31, zápis FC05/FC15, čtení FC01), protože mapa registrů není ověřena na hardwaru. Modul, který při `open()` neodpovídá, je `DeviceNotFound` se jménem zařízení, adresou a sběrnicí |
 | `quido_rs_2_32` | 32 coilů a 2 vstupy (výchozí coily 0 až 31, vstupy jako discrete inputs 0 a 1), modul musí být přepnutý z protokolu Spinel do Modbus RTU. Mapa není ověřena na hardwaru, upravuje se volbami jako u Waveshare |
 | `modbus_di` | obecné čtení vstupů: zdroj (discrete inputs, nebo input registry po 16 vstupech od nejnižšího bitu), adresa prvního vstupu, počet, inverze. Všechny vstupy se čtou jedním požadavkem |
-| `analog_discovery_3` | vazba `ctypes` (`drivers/dwf.py`) na `libdwf.so` (Linux) nebo `dwf.dll` (Windows), knihovna se načte až v `open()`. Jeden handle pro 2 kanály AWG a 2 kanály scope, scope ±25 V. Viz kap. 4.4 |
+| `analog_discovery_3` | vazba `ctypes` (`drivers/dwf.py`) na `libdwf.so` (Linux) nebo `dwf.dll` (Windows), knihovna se načte až v `open()`. Jeden handle pro 2 kanály AWG, 2 kanály scope a 16 linek DIO, scope ±25 V. Viz kap. 4.4 |
 | `serial_ports` | pyserial. Na Linuxu nastaví u FTDI latency timer na 1 ms přes sysfs. Na Windows se hodnota nekontroluje, jen se upozorní v logu |
 | `openocd` | spouští `openocd` / `openocd.exe` (PATH nebo cesta v konfiguraci) s timeoutem, výstup ukládá do záznamů. Používá `adapter serial` a `adapter speed`, potřebuje OpenOCD 0.12 nebo novější (viz [nasazeni.md](nasazeni.md)). Chybějící program je `DeviceNotFound` |
 
@@ -117,6 +118,8 @@ Volby a kanály ovladačů jsou v [konfigurace.md](konfigurace.md#stanoviště).
 - Bezpečný stav je zastavený generátor s 0 V.
 - Záznam do velikosti bufferu scope se pořídí v režimu single. Delší záznam běží v režimu record s neomezenou délkou a končí po sebrání `n` vzorků. Čekání je omezeno na `n / rate + 2 s`, pak `DeviceTimeout`. Ztracené nebo poškozené vzorky a neúplný záznam jsou `DeviceError`.
 - Zařízení otevřené jiným programem (WaveForms) je `DeviceNotFound`.
+- Zámky: každé volání SDK drží zámek knihovny včetně čtení chybové hlášky. Ovladač má zámek generátorů, scope a DIO. Měření scope mezi dotazy na stav knihovnu nedrží, takže DIO na měření nečeká. `open`, `close` a `safe_state` drží všechny zámky.
+- DIO: po otevření a v bezpečném stavu jsou všechny linky vstupy. `drive` nastaví úroveň před povolením výstupu a obojí aplikuje jedním `FDwfDigitalIOConfigure`. Bezpečný stav zastaví generátory i uvolní výstupy, i když jedna část selže.
 
 ### 4.5 Simulace
 
@@ -124,7 +127,7 @@ Volby a kanály ovladačů jsou v [konfigurace.md](konfigurace.md#stanoviště).
 
 - `sim_di` může zrcadlit sim relé (`mirror: {0: rel1.2}`), takže lze vytvořit smyčku stimul a odezva.
 - `sim_serial` vytváří propojené virtuální sběrnice portů. Registruje vlastní URL handler pyserialu `hilsim://<klíč>/<port>`, takže simulované porty jsou plnohodnotné objekty pyserialu. `SerialSignal`, `ModbusMaster` i `ModbusSlave` běží nad stejným rozhraním jako na skutečném portu.
-- `sim_ad3` drží nastavení generátorů v paměti a jako vstup scope vrací průběh z konfigurace, který lze z testu změnit metodou `set_input()`. DUT mezi generátorem a scope se nesimuluje.
+- `sim_ad3` drží nastavení generátorů v paměti a jako vstup scope vrací průběh z konfigurace, který lze z testu změnit metodou `set_input()`. DUT mezi generátorem a scope se nesimuluje. DIO se nastavují metodou `set_dio()`, volba `dio_loop` propojí vstup s výstupem.
 - `sim_probe` zaznamenává volání `flash`, `reset` a `halt` a umí nasimulovat selhání.
 - Vestavěné stanoviště `sim` (`src/hil/stations/sim.yaml`) zapojuje všechny svorky profilu `standard-v1` na sim ovladače. Repozitář DUT tak může spustit své testy naprázdno volbou `--hil-station sim`.
 
@@ -132,7 +135,7 @@ Volby a kanály ovladačů jsou v [konfigurace.md](konfigurace.md#stanoviště).
 
 ### 5.1 Signály
 
-Test pracuje se signály DUT. Druh objektu určuje druh svorky (`PowerSignal`, `SwitchSignal`, `SenseSignal`, `FaultPath`, `AnalogOut`, `AnalogIn`, `SerialSignal`, `Rs485Signal`, `Rs485Monitor`, `DebugSignal`). Metody signálů a jejich chyby popisuje [testy.md](testy.md#signály).
+Test pracuje se signály DUT. Druh objektu určuje druh svorky (`PowerSignal`, `SwitchSignal`, `SenseSignal`, `LogicOutSignal`, `FaultPath`, `AnalogOut`, `AnalogIn`, `SerialSignal`, `Rs485Signal`, `Rs485Monitor`, `DebugSignal`). Metody signálů a jejich chyby popisuje [testy.md](testy.md#signály).
 
 ```python
 def test_alarm_on_door_open(dut):
@@ -307,7 +310,7 @@ Instalace na Linuxu a Windows, pravidla udev a služba `hil-safe` jsou v [nasaze
 
 | Požadavek | Pokrytí |
 |---|---|
-| HW-DIG-01 až 04 | `switch`, `sense` (kap. 5.1) |
+| HW-DIG-01 až 04 | `switch`, `sense`, `logic_out` (kap. 5.1) |
 | HW-PWR-01 až 03 | `power`, `PowerBlock.emergency_off()`, bezpečný stav |
 | HW-FLT-01, 02, 04 | `fault_path`, `FaultMatrix`; počet cest dán konfigurací |
 | HW-COM-01 až 06 | `rs485`, `rs485_monitor`, `serial`, `comm/` |

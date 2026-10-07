@@ -7,8 +7,8 @@ import pytest
 from hil.drivers.sim.di import SimDi, SimDiConfig
 from hil.errors import DeviceTimeout, TerminationRequested, WaitTimeout
 from hil.recording import Recorder
-from hil.resources import DigitalInput
-from hil.signals import SenseSignal, SwitchSignal
+from hil.resources import DigitalInput, LogicOutput
+from hil.signals import LogicOutSignal, SenseSignal, SwitchSignal
 
 
 @pytest.fixture
@@ -126,3 +126,43 @@ def test_termination_while_starting_record_stops_the_thread(loop, monkeypatch):
     while any(t.name == "hil-record-X2.1" for t in threading.enumerate()):
         assert time.perf_counter() < deadline, "recording thread still runs"
         time.sleep(0.01)
+
+
+class _OutputBank:
+    name = "dio"
+
+    def __init__(self):
+        self.calls = []
+
+    def drive(self, index, value):
+        self.calls.append(("drive", index, value))
+
+    def release(self, index):
+        self.calls.append(("release", index))
+
+
+def test_logic_out_set_release_safe_state():
+    bank = _OutputBank()
+    out = LogicOutSignal("X3.1", Recorder(), LogicOutput(bank, 8))
+    assert out.state is None
+    assert out.last_change is None
+    out.set(True)
+    assert out.state is True
+    out.set(False)
+    out.release()
+    assert out.state is None
+    out.set(True)
+    out.safe_state()
+    assert bank.calls == [
+        ("drive", 8, True),
+        ("drive", 8, False),
+        ("release", 8),
+        ("drive", 8, True),
+        ("release", 8),
+    ]
+    assert out.state is None
+    assert out.last_change is not None
+
+
+def test_logic_output_str():
+    assert str(LogicOutput(_OutputBank(), 8)) == "dio.8"

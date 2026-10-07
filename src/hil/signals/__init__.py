@@ -11,7 +11,7 @@ from hil.signals.analog import (
 )
 from hil.signals.base import Signal
 from hil.signals.debug import DebugSignal
-from hil.signals.digital import SenseRecording, SenseSignal, SwitchSignal
+from hil.signals.digital import LogicOutSignal, SenseRecording, SenseSignal, SwitchSignal
 from hil.signals.fault import FaultPath
 from hil.signals.port import PortSignal
 from hil.signals.power import PowerSignal
@@ -25,6 +25,7 @@ __all__ = [
     "AnalogRouter",
     "DebugSignal",
     "FaultPath",
+    "LogicOutSignal",
     "Measurement",
     "PortSignal",
     "PowerSignal",

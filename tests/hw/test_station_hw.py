@@ -206,3 +206,30 @@ def test_analog_multiplexer_loopback(hw_station):
             assert abs(m.dc) < 0.2
     finally:
         analog.disconnect_all()
+
+
+def dio_pairs():
+    """HIL_HW_DIO_LOOP=X3.1:X2.1 - logic outputs wired to sense inputs by jumpers."""
+    return [tuple(pair.split(":")) for pair in env("HIL_HW_DIO_LOOP").split(",")]
+
+
+def test_ad3_dio_loopback(hw_station):
+    """Logic output to sense input through a jumper: latency and polling period."""
+    for out_name, sense_name in dio_pairs():
+        out = hw_station.digital.logic_out(out_name)
+        sense = hw_station.digital.sense(sense_name)
+        try:
+            out.set(False)
+            time.sleep(0.05)
+            low = sense.read()  # the reading of level 0, whatever dio_invert says
+            for level, expected in ((True, not low), (False, low)):
+                out.set(level)
+                seen = sense.wait_for(expected, timeout=0.5)
+                latency = seen - out.last_change
+                print(f"{out_name} -> {sense_name} {level}: {latency * 1000:.2f} ms")
+                assert latency < 0.05
+            with sense.record() as recording:
+                time.sleep(0.5)
+            print(f"{sense_name}: mean polling period {recording.mean_period_s * 1000:.3f} ms")
+        finally:
+            out.release()

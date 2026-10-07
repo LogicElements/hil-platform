@@ -17,6 +17,12 @@ terminals:
   X2.6: sense
   X2.7: sense
   X2.8: sense
+  X3.1: logic_out
+  X3.2: logic_out
+  X3.3: logic_out
+  X3.4: logic_out
+  X3.5: logic_out
+  X3.6: logic_out
   F1: fault_path
   F2: fault_path
   F3: fault_path

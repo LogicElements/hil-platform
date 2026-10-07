@@ -32,7 +32,7 @@ Návratové kódy pytestu: 4 při chybě konfigurace stanoviště nebo DUT (nepl
 - `dut`: signály DUT podle `dut.yaml`. Marker `hil_requires` funguje jen u testů, které používají `dut`.
 - `hil`: celé stanoviště (`hil.power`, `hil.digital`, `hil.faults`, `hil.devices`) pro diagnostiku nebo testy bez `dut.yaml`.
 
-Každý test, který používá `hil` nebo `dut` (i nepřímo přes jinou fixture), dostane po skončení, i neúspěšném, bezpečný stav stanoviště (napájení vypnuto, poruchy obnoveny, generátory zastaveny a odpojeny, relé rozepnuta) a vlastní adresář záznamů. Pokud bezpečný stav nejde nastavit, běh se ukončí s kódem 3.
+Každý test, který používá `hil` nebo `dut` (i nepřímo přes jinou fixture), dostane po skončení, i neúspěšném, bezpečný stav stanoviště (napájení vypnuto, poruchy obnoveny, generátory zastaveny a odpojeny, logické výstupy uvolněny, relé rozepnuta) a vlastní adresář záznamů. Pokud bezpečný stav nejde nastavit, běh se ukončí s kódem 3.
 
 ```python
 import pytest
@@ -56,6 +56,7 @@ def test_analog_input(dut):
 |---|---|
 | `power` | `on()`, `off()`, `outage(s) -> naměřená doba` (jen při zapnutém napájení, jinak `OperationNotAllowed`), `cycle(n, on_s, off_s)`, `is_on` |
 | `switch` | `set(bool)`, `pulse(s)`, `state`, `last_change` |
+| `logic_out` | `set(bool)`, `release()` (vysoká impedance), `state` (`None` = uvolněno), `last_change` |
 | `sense` | `read()`, `wait_for(stav, timeout, poll_s=0.001) -> čas`, `with record() as r:` (změny v `r.changes`, průměrná perioda čtení v `r.mean_period_s`) |
 | `fault_path` | `open()`, `short_to_gnd()`, `restore()`, `state` |
 | `serial` | `write(data)`, `expect(regex, timeout) -> match`, `read_until(konec, timeout)`; log do `serial-<signál>.log` |

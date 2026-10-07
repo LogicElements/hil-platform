@@ -16,7 +16,6 @@ devices:
     parity: E
   rel1: {driver: waveshare_relay32, bus: relay_bus, address: 1}
   rel2: {driver: waveshare_relay32, bus: relay_bus, address: 2}
-  di1: {driver: modbus_di, bus: relay_bus, address: 5, count: 8}
   # Waveshare USB to 4-Ch Serial Converter: A TTL, B TTL or RS-485, C and D isolated RS-485
   ft:
     driver: serial_ports
@@ -26,8 +25,14 @@ devices:
       C: {serial: FT4232-REPLACE, interface: 2}
       D: {serial: FT4232-REPLACE, interface: 3}
   stlink: {driver: openocd, interface: interface/stlink.cfg}
-  # Digilent Analog Discovery 3: generators awg1, awg2 (±5 V), scope ch1, ch2 (±25 V)
-  ad3: {driver: analog_discovery_3, serial: REPLACE}
+  # Digilent Analog Discovery 3: generators awg1, awg2 (±5 V), scope ch1, ch2 (±25 V),
+  # digital lines (LVCMOS 3.3 V): dio0 to dio7 DUT outputs (dry contacts with pull-ups to
+  # 3.3 V, so inverted), dio8 to dio13 logic inputs of the DUT, dio14 and dio15 spare
+  ad3:
+    driver: analog_discovery_3
+    serial: REPLACE
+    dio_outputs: [8, 9, 10, 11, 12, 13]
+    dio_invert: [0, 1, 2, 3, 4, 5, 6, 7]
 analog:
   # select relay released (NC) = generator 1, operated (NO) = generator 2
   generators: [ad3.awg1, ad3.awg2]
@@ -41,14 +46,20 @@ terminals:
   F2: {kind: fault_path, series: rel1.8, short: rel1.9}
   F3: {kind: fault_path, series: rel1.10, short: rel1.11}
   F4: {kind: fault_path, series: rel1.12, short: rel1.13}
-  X2.1: {kind: sense, input: di1.0}
-  X2.2: {kind: sense, input: di1.1}
-  X2.3: {kind: sense, input: di1.2}
-  X2.4: {kind: sense, input: di1.3}
-  X2.5: {kind: sense, input: di1.4}
-  X2.6: {kind: sense, input: di1.5}
-  X2.7: {kind: sense, input: di1.6}
-  X2.8: {kind: sense, input: di1.7}
+  X2.1: {kind: sense, input: ad3.dio0}
+  X2.2: {kind: sense, input: ad3.dio1}
+  X2.3: {kind: sense, input: ad3.dio2}
+  X2.4: {kind: sense, input: ad3.dio3}
+  X2.5: {kind: sense, input: ad3.dio4}
+  X2.6: {kind: sense, input: ad3.dio5}
+  X2.7: {kind: sense, input: ad3.dio6}
+  X2.8: {kind: sense, input: ad3.dio7}
+  X3.1: {kind: logic_out, output: ad3.dio8}
+  X3.2: {kind: logic_out, output: ad3.dio9}
+  X3.3: {kind: logic_out, output: ad3.dio10}
+  X3.4: {kind: logic_out, output: ad3.dio11}
+  X3.5: {kind: logic_out, output: ad3.dio12}
+  X3.6: {kind: logic_out, output: ad3.dio13}
   CON: {kind: serial, port: ft.A}
   LOG: {kind: serial, port: ft.B}
   COM1: {kind: rs485, port: ft.C}

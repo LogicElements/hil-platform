@@ -25,6 +25,7 @@ TerminalKind = Literal[
     "power",
     "switch",
     "sense",
+    "logic_out",
     "fault_path",
     "analog_out",
     "analog_in",
@@ -64,6 +65,11 @@ class SwitchTerminal(_Strict):
 class SenseTerminal(_Strict):
     kind: Literal["sense"]
     input: Ref
+
+
+class LogicOutTerminal(_Strict):
+    kind: Literal["logic_out"]
+    output: Ref
 
 
 class FaultPathTerminal(_Strict):
@@ -131,6 +137,7 @@ StationTerminal = Annotated[
     PowerTerminal
     | SwitchTerminal
     | SenseTerminal
+    | LogicOutTerminal
     | FaultPathTerminal
     | AnalogOutTerminal
     | AnalogInTerminal

@@ -26,10 +26,10 @@ Zařízení si nastaví uživatel sám podle dokumentace výrobce, balíček je 
 |---|---|---|---|
 | 1 | Papouch Quido RS 2/32 | Modbus RTU, mapa coilů a vstupů, stav po zapnutí, zpoždění smyčky relé → vstup | hotovo kromě kroku 5 |
 | 2 | Waveshare Modbus RTU Relay 32-ch | mapa coilů, stav po zapnutí, sdílená sběrnice s Quido | odloženo, není k dispozici |
-| 3 | modul digitálních vstupů (`modbus_di`) | čtení vstupů, perioda čtení | čeká |
+| 3 | modul digitálních vstupů (`modbus_di`) | nahrazeno linkami DIO Analog Discovery 3 (bod 6), Modbus modul je budoucí alternativa pro jiné úrovně než 3,3 V | odloženo |
 | 4 | napájení přes zdroj HDR | `outage()`, odchylka pod 10 ms | čeká |
 | 5 | FT4232H | latency timer, monitor RS-485 na 921 600 Bd | čeká |
-| 6 | Analog Discovery 3 | funkce WaveForms SDK, smyčka generátor → scope | čeká |
+| 6 | Analog Discovery 3 | funkce WaveForms SDK, smyčka generátor → scope, DIO: smyčka logic_out → sense (`test_ad3_dio_loopback`) | čeká |
 | 7 | ST-Link a OpenOCD | flashování a reset DUT | hotovo |
 | 8 | analogový multiplexer | oba generátory přes relé, měřicí multiplexer | čeká |
 | 9 | celé stanoviště na Linuxu | udev, služba `hil safe`, `hil check --probe` | čeká |

@@ -2,6 +2,7 @@
 # It wires every terminal of the standard-v1 profile.
 # SWD is wired to the simulated probe ``probe``.
 # X1.1 is looped back to X2.1 (di1.0 mirrors rel1.2), so stimulus and response can be tested.
+# X3.1 is looped back to X2.8 inside the simulated Analog Discovery 3 (dio0 reads dio8).
 # Analog: AO.0 is wired directly to generator 1 of the simulated Analog Discovery 3,
 # AO.1 to AO.4 go through the output multiplexer on rel2. AI.1, AI.2 share scope channel
 # ch1, AI.3, AI.4 share ch2. The scope reads fixed signals (ch1: 1 V DC with a 50 Hz sine
@@ -17,7 +18,11 @@ devices:
   ser: {driver: sim_serial, buses: {con: [con, dut_con], log: [log, dut_log], rs485: [com1, mon1, dut_rs485]}}
   probe: {driver: sim_probe}
   rel2: {driver: sim_relay, channels: 32}
-  ad3: {driver: sim_ad3, inputs: {ch1: {dc: 1.0, sine: {freq: 50, amp: 0.5}}, ch2: {dc: 12.0}}}
+  ad3:
+    driver: sim_ad3
+    inputs: {ch1: {dc: 1.0, sine: {freq: 50, amp: 0.5}}, ch2: {dc: 12.0}}
+    dio_outputs: [8, 9, 10, 11, 12, 13]
+    dio_loop: {0: 8}
 analog:
   generators: [ad3.awg1, ad3.awg2]
 terminals:
@@ -33,7 +38,13 @@ terminals:
   X2.5: {kind: sense, input: di1.4}
   X2.6: {kind: sense, input: di1.5}
   X2.7: {kind: sense, input: di1.6}
-  X2.8: {kind: sense, input: di1.7}
+  X2.8: {kind: sense, input: ad3.dio0}
+  X3.1: {kind: logic_out, output: ad3.dio8}
+  X3.2: {kind: logic_out, output: ad3.dio9}
+  X3.3: {kind: logic_out, output: ad3.dio10}
+  X3.4: {kind: logic_out, output: ad3.dio11}
+  X3.5: {kind: logic_out, output: ad3.dio12}
+  X3.6: {kind: logic_out, output: ad3.dio13}
   F1: {kind: fault_path, series: rel1.6, short: rel1.7}
   F2: {kind: fault_path, series: rel1.8, short: rel1.9}
   F3: {kind: fault_path, series: rel1.10, short: rel1.11}

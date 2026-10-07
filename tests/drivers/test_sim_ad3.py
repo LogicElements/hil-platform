@@ -6,7 +6,7 @@ import pytest
 from hil.config.models import DeviceConfig
 from hil.drivers import create_device
 from hil.errors import ConfigError, DeviceError
-from hil.resources import AwgChannel, ScopeChannel, Waveform
+from hil.resources import AwgChannel, DigitalInput, LogicOutput, ScopeChannel, Waveform
 
 
 def make(**options):
@@ -17,7 +17,9 @@ def make(**options):
 
 def test_channels():
     ad3 = make()
-    assert set(ad3.channel_names()) == {"awg1", "awg2", "ch1", "ch2"}
+    assert {"awg1", "awg2", "ch1", "ch2"} | {f"dio{i}" for i in range(16)} == set(
+        ad3.channel_names()
+    )
     assert isinstance(ad3.resource("awg1"), AwgChannel)
     assert isinstance(ad3.resource("ch2"), ScopeChannel)
     with pytest.raises(ConfigError, match="no channel 'awg3'"):
@@ -114,3 +116,88 @@ def test_safe_state_stops_both_generators():
     ad3.safe_state()
     assert ad3.running == [False, False]
     assert ad3.waves == [None, None]
+
+
+def test_dio_channels():
+    ad3 = make(dio_outputs=[8])
+    assert isinstance(ad3.resource("dio0"), DigitalInput)
+    assert isinstance(ad3.resource("dio8"), LogicOutput)
+    for bad in ("dio16", "dio08"):
+        with pytest.raises(ConfigError, match=f"no channel '{bad}'"):
+            ad3.resource(bad)
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"dio_outputs": [16]}, "dio_outputs"),
+        ({"dio_invert": [-1]}, "dio_invert"),
+        ({"dio_outputs": [8, 8]}, "dio_outputs lists a line more than once"),
+        ({"dio_outputs": [8], "dio_invert": [8]}, r"output lines \[8\] cannot be in dio_invert"),
+        ({"dio_outputs": [8], "dio_loop": {0: 9}}, r"dio_loop: line 9 is not an output"),
+        ({"dio_outputs": [8], "dio_loop": {8: 8}}, r"dio_loop: line 8 is an output"),
+    ],
+)
+def test_dio_config_errors(options, message):
+    with pytest.raises(ConfigError, match=message):
+        make(**options)
+
+
+def test_dio_inputs_and_invert():
+    ad3 = make(dio_invert=[1])
+    assert ad3.read(0) is False
+    assert ad3.read(1) is True
+    ad3.set_dio(0, True)
+    ad3.set_dio(1, True)
+    assert ad3.read(0) is True
+    assert ad3.read(1) is False
+    with pytest.raises(ValueError, match="line 8 is an output"):
+        make(dio_outputs=[8]).set_dio(8, True)
+
+
+@pytest.mark.parametrize("line", [-1, 16])
+def test_set_dio_line_out_of_range(line):
+    ad3 = make()
+    with pytest.raises(ValueError, match=f"line {line} is out of range"):
+        ad3.set_dio(line, True)
+    assert ad3.dio_levels == [False] * 16
+
+
+def test_dio_loop_and_output_level():
+    ad3 = make(dio_outputs=[8], dio_loop={0: 8}, dio_invert=[0])
+    assert ad3.read(0) is True  # released output reads 0, inverted
+    ad3.drive(8, True)
+    assert ad3.read(8) is True  # an output reads its own level, no inversion
+    assert ad3.read(0) is False
+    ad3.release(8)
+    assert ad3.read(8) is False
+    assert ad3.read(0) is True
+    assert [(line, value) for _, line, value in ad3.dio_history] == [(8, True), (8, None)]
+
+
+def test_drive_on_input_line():
+    ad3 = make(dio_outputs=[8])
+    with pytest.raises(DeviceError, match="line 3 is not an output"):
+        ad3.drive(3, True)
+    with pytest.raises(DeviceError, match="line 3 is not an output"):
+        ad3.release(3)
+
+
+def test_dio_closed_and_fail_with():
+    ad3 = make(dio_outputs=[8])
+    ad3.fail_with = DeviceError("boom")
+    with pytest.raises(DeviceError, match="boom"):
+        ad3.read(0)
+    ad3.fail_with = None
+    ad3.close()
+    with pytest.raises(DeviceError, match="not open"):
+        ad3.drive(8, True)
+
+
+def test_safe_state_releases_dio_even_if_generators_fail():
+    ad3 = make(dio_outputs=[8])
+    ad3.drive(8, True)
+    ad3.fail_with = DeviceError("boom")
+    with pytest.raises(DeviceError, match="boom"):
+        ad3.safe_state()
+    assert ad3.dio_driven == {}

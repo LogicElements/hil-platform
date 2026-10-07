@@ -1,3 +1,6 @@
+import threading
+import time
+
 import pytest
 
 from hil.drivers import dwf
@@ -234,3 +237,64 @@ def test_exact_rate_logs_nothing(lib, fake_dwf, caplog):
     with caplog.at_level("WARNING", logger="hil.drivers.dwf"):
         lib.scope_acquire(handle, 0, 100_000.0, 8, record=False, timeout_s=1.0)
     assert caplog.text == ""
+
+
+def test_dio_reset_makes_all_lines_inputs(lib, fake_dwf):
+    handle = lib.open(0)
+    fake_dwf.dio_output = fake_dwf.dio_enable = 0xFF
+    lib.dio_reset(handle)
+    assert fake_dwf.dio_enable == 0
+    assert fake_dwf.names()[-3:] == [
+        "FDwfDigitalIOReset",
+        "FDwfDigitalIOOutputEnableSet",
+        "FDwfDigitalIOConfigure",
+    ]
+
+
+def test_dio_write_sets_levels_before_enabling(lib, fake_dwf):
+    handle = lib.open(0)
+    fake_dwf.calls.clear()
+    lib.dio_write(handle, 0x100, 0x300)
+    assert fake_dwf.calls == [
+        ("FDwfDigitalIOOutputSet", (handle, 0x100)),
+        ("FDwfDigitalIOOutputEnableSet", (handle, 0x300)),
+        ("FDwfDigitalIOConfigure", (handle,)),
+    ]
+    assert (fake_dwf.dio_output, fake_dwf.dio_enable) == (0x100, 0x300)
+
+
+def test_dio_read(lib, fake_dwf):
+    handle = lib.open(0)
+    fake_dwf.dio_external = 0b101
+    lib.dio_write(handle, 0x100, 0x100)
+    assert lib.dio_read(handle) == 0x105
+    assert fake_dwf.names()[-2:] == ["FDwfDigitalIOStatus", "FDwfDigitalIOInputStatus"]
+
+
+def test_dio_failure_reports_last_error(lib, fake_dwf):
+    handle = lib.open(0)
+    fake_dwf.fail["FDwfDigitalIOInputStatus"] = "USB error"
+    with pytest.raises(DeviceError, match="FDwfDigitalIOInputStatus failed: USB error"):
+        lib.dio_read(handle)
+
+
+def test_scope_acquisition_releases_the_library_between_polls(lib, fake_dwf):
+    handle = lib.open(0)
+    fake_dwf.hold_scope = True
+    result = []
+    thread = threading.Thread(
+        target=lambda: result.append(lib.scope_acquire(handle, 0, 1000.0, 10, False, 5.0))
+    )
+    thread.start()
+    try:
+        deadline = time.monotonic() + 2
+        while "FDwfAnalogInStatus" not in fake_dwf.names():
+            assert time.monotonic() < deadline, "acquisition did not start"
+            time.sleep(0.001)
+        start = time.monotonic()
+        lib.dio_read(handle)
+        assert time.monotonic() - start < 0.1
+    finally:
+        fake_dwf.hold_scope = False
+        thread.join(5)
+    assert len(result[0]) == 10
