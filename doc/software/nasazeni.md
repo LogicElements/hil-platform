@@ -9,12 +9,13 @@
 2. Repozitář a virtuální prostředí:
    ```
    sudo mkdir -p /opt/hil && sudo chown hil: /opt/hil
-   git clone git@github.com:LogicElements/hil-platform.git /opt/hil/hil-platform
+   git clone https://github.com/LogicElements/hil-platform.git /opt/hil/hil-platform
    python3 -m venv /opt/hil/venv
    /opt/hil/venv/bin/pip install -e /opt/hil/hil-platform
    ```
-3. OpenOCD z distribuce: `sudo apt install openocd`. Balíček přidá pravidla udev pro ST-Link. Ovladač `openocd` používá syntaxi `adapter serial` a `adapter speed`, potřebuje tedy OpenOCD 0.12 nebo novější (`adapter serial` je od verze 0.12.0, starší verze měly `hla_serial`). Debian bookworm obsahuje verzi 0.12.
-4. WaveForms a Adept runtime pro Analog Discovery 3 se instalují podle [návodu Digilentu](https://digilent.com/reference/test-and-measurement/guides/getting-started-with-raspberry-pi) (na Raspberry Pi 5 verze ARM64, na x86 balíčky `.deb` pro amd64). Adept runtime přidá pravidla udev pro přístup k AD3. Ovladač `analog_discovery_3` načte knihovnu `libdwf.so` při otevření stanoviště. Pokud je knihovna jinde než v cestě dynamického linkeru, uveďte ji ve stanovišti volbou `library`. Ověření: `hil check --station stations/lab-a.yaml --probe`.
+   Repozitář je veřejný, ke klonování přes HTTPS stanice nepotřebuje klíč pro GitHub.
+3. OpenOCD z distribuce: `sudo apt install openocd`. Balíček přidá pravidla udev pro ST-Link. Ovladač `openocd` používá syntaxi `adapter serial` a `adapter speed`, potřebuje tedy OpenOCD 0.12 nebo novější (`adapter serial` je od verze 0.12.0, starší verze měly `hla_serial`). Debian bookworm i trixie obsahují verzi 0.12. S ní funguje výchozí `interface/stlink.cfg` (ověřeno s ST-Link V3 a STM32H7A3).
+4. WaveForms a Adept runtime pro Analog Discovery 3 se instalují podle [návodu Digilentu](https://digilent.com/reference/test-and-measurement/guides/getting-started-with-raspberry-pi) (na Raspberry Pi verze ARM64 pro 64bitový systém, na x86 balíčky `.deb` pro amd64). Balíčky se stahují ručně ze stránek Digilentu a instalují `sudo apt install ./digilent.adept.runtime_…_arm64.deb ./digilent.waveforms_…_arm64.deb`. Na Raspberry Pi OS Lite (bez desktopu) skončí instalace WaveForms chybou skriptu `postinst`, protože chybí adresáře menu. Pomůže `sudo mkdir -p /usr/share/desktop-directories /etc/xdg/menus/applications-merged` a `sudo dpkg --configure -a`. Adept runtime přidá pravidla udev pro přístup k AD3. Ovladač `analog_discovery_3` načte knihovnu `libdwf.so` při otevření stanoviště. Pokud je knihovna jinde než v cestě dynamického linkeru, uveďte ji ve stanovišti volbou `library`. Ověření: `hil check --station stations/lab-a.yaml --probe`.
 
 ### Pravidla udev
 
