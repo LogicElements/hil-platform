@@ -1,0 +1,23 @@
+# Bench station: analog multiplexers on Quido RS 2/32 relays with Analog Discovery 3
+# (bring-up, doc/software/oziveni.md). Quido relays have changeover contacts.
+# Output multiplexer: W1 to NC and W2 to NO of relays 1 and 3 (select), their COM to
+# COM of relays 2 and 4 (connect), whose NO are AO.1 and AO.2.
+# Measuring multiplexer: AI.1 and AI.2 share scope 1 (relays 5 and 6), AI.3 is on
+# scope 2 (relay 7); COM is the terminal, NO goes to 1+ or 2+; 1- and 2- to ground.
+name: bench-mux
+labels: [bench]
+profile: standard-v1
+devices:
+  relay_bus: {driver: modbus_rtu_bus, port: COM4, baud: 115200, parity: E}
+  quido: {driver: quido_rs_2_32, bus: relay_bus, address: 49}
+  ad3:
+    driver: analog_discovery_3
+    serial: 210415BB5F29
+analog:
+  generators: [ad3.awg1, ad3.awg2]
+terminals:
+  AO.1: {kind: analog_out, select: quido.0, connect: quido.1}
+  AO.2: {kind: analog_out, select: quido.2, connect: quido.3}
+  AI.1: {kind: analog_in, scope: ad3.ch1, connect: quido.4}
+  AI.2: {kind: analog_in, scope: ad3.ch1, connect: quido.5}
+  AI.3: {kind: analog_in, scope: ad3.ch2, connect: quido.6}

@@ -31,7 +31,7 @@ Zařízení si nastaví uživatel sám podle dokumentace výrobce, balíček je 
 | 5 | FT4232H | latency timer, monitor RS-485 na 921 600 Bd | čeká |
 | 6 | Analog Discovery 3 | funkce WaveForms SDK, smyčka generátor → scope, DIO: smyčka logic_out → sense (`test_ad3_dio_loopback`) | hotovo |
 | 7 | ST-Link a OpenOCD | flashování a reset DUT | hotovo |
-| 8 | analogový multiplexer | oba generátory přes relé, měřicí multiplexer | čeká |
+| 8 | analogový multiplexer | oba generátory přes relé, měřicí multiplexer (dočasně na relé Quido, `bench-mux`) | připraveno, čeká na zapojení |
 | 9 | celé stanoviště na Linuxu | udev, služba `hil safe`, `hil check --probe` | čeká |
 
 ## 1. Papouch Quido RS 2/32
@@ -273,6 +273,31 @@ $env:HIL_HW_IMAGE = "examples/AmplifFilter-App.hex"
 ```
 
 `HIL_HW_IMAGE` je libovolný image pro cílový čip (.hex nebo .elf). Image se do repozitáře nedávají (`.gitignore`), `examples/AmplifFilter-App.hex` je jen lokální soubor na vývojovém PC. Test přepíše firmware v čipu. Před prvním flashováním se vyplatí uložit obsah flash: `STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -r 0x08000000 0x200000 zaloha.bin`.
+
+## 8. Analogový multiplexer
+
+Dočasně na relé Quido RS 2/32 (přepínací kontakty), dokud není k dispozici Waveshare. Stanoviště `stations/bench-mux.yaml`: Quido na sběrnici relé a AD3, svorky `AO.1`, `AO.2` (výstupní multiplexer) a `AI.1`, `AI.2` (scope 1), `AI.3` (scope 2). Přímé propojky W1 → 1+ a W2 → 2+ z bodu 6 musí být odpojené.
+
+| Vodič | Zapojení |
+|---|---|
+| generátor 1 | W1 → NC relé 1 a NC relé 3 |
+| generátor 2 | W2 → NO relé 1 a NO relé 3 |
+| select → connect | COM relé 1 → COM relé 2, COM relé 3 → COM relé 4 |
+| svorky výstupů | `AO.1` = NO relé 2, `AO.2` = NO relé 4 |
+| `AI.1` (relé 5) | `AO.1` → COM relé 5, NO relé 5 → 1+ |
+| `AI.2` (relé 6) | `AO.2` → COM relé 6, NO relé 6 → 1+ |
+| `AI.3` (relé 7) | `AO.2` → COM relé 7, NO relé 7 → 2+ |
+| zem | 1− a 2− na GND AD3 |
+
+```
+$env:HIL_HW_STATION = "stations/bench-mux.yaml"
+$env:HIL_HW_ANALOG_LOOP = "AO.1:AI.1,AO.2:AI.3"
+.venv/Scripts/python -m pytest tests/hw -v -s -k test_analog_multiplexer_loopback
+$env:HIL_HW_ANALOG_LOOP = "AO.1:AI.1,AO.2:AI.2"
+.venv/Scripts/python -m pytest tests/hw -v -s -k test_analog_multiplexer_loopback
+```
+
+První běh ověří oba generátory přes výstupní multiplexer, každý na jiném kanálu scope. Druhý běh ověří přepínání měřicího multiplexeru mezi dvěma svorkami jednoho kanálu. Oba ověří i stav bez signálu po `disconnect_all()`.
 
 ## Výsledky
 
