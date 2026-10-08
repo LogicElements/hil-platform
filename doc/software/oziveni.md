@@ -28,7 +28,7 @@ Zařízení si nastaví uživatel sám podle dokumentace výrobce, balíček je 
 | 2 | Waveshare Modbus RTU Relay 32-ch | mapa coilů, stav po zapnutí, sdílená sběrnice s Quido | odloženo, není k dispozici |
 | 3 | modul digitálních vstupů (`modbus_di`) | nahrazeno linkami DIO Analog Discovery 3 (bod 6), Modbus modul je budoucí alternativa pro jiné úrovně než 3,3 V | odloženo |
 | 4 | napájení přes zdroj HDR | `outage()`, odchylka pod 10 ms | čeká |
-| 5 | sériové porty | a) rychlý start bez FT4232H: VCP ST-Link V3 jako `LOG`, druhý převodník USB–RS-485 jako `COM1` (`bench-serial`); b) FT4232H: latency timer, monitor RS-485 na 921 600 Bd | a) připraveno, b) čeká |
+| 5 | sériové porty | a) rychlý start bez FT4232H: VCP ST-Link V3 jako `LOG`, druhý převodník USB–RS-485 jako `COM1` (`bench-serial`); b) FT4232H: latency timer, monitor RS-485 na 921 600 Bd | a) částečně, b) čeká |
 | 6 | Analog Discovery 3 | funkce WaveForms SDK, smyčka generátor → scope, DIO: smyčka logic_out → sense (`test_ad3_dio_loopback`) | hotovo |
 | 7 | ST-Link a OpenOCD | flashování a reset DUT | hotovo |
 | 8 | analogový multiplexer | oba generátory přes relé, měřicí multiplexer (dočasně na relé Quido, `bench-mux`) | připraveno, čeká na zapojení |
@@ -141,22 +141,24 @@ Test měří zpoždění od sepnutí relé po změnu vstupu (limit 50 ms) a prů
 
 Porty k DUT nemusí být na modulu FT4232H, požadavky na jednotlivé svorky jsou v [doporučení](../vyber/doporuceni.md#sériové-porty). Oživuje se ve dvou částech.
 
-### a) Rychlý start bez FT4232H
+### 5a. Rychlý start bez FT4232H
 
-Stanoviště `stations/bench-serial.yaml`: `LOG` na VCP ST-Link V3 desky NUCLEO-H7A3ZI-Q, `COM1` na druhém převodníku USB–RS-485 (sběrnice relé má svůj převodník), `SWD` na stejném ST-Link. Porty ve stanovišti jsou zástupné (`COM-REPLACE`). Skutečné porty ukáže:
+Stanoviště `stations/bench-serial.yaml` (Windows) a `stations/bench-serial-linux.yaml` (Linux) se stejným hardwarem:
 
-```
-.venv/Scripts/python -m serial.tools.list_ports -v
-```
+| Svorka | Port | Windows | Linux |
+|---|---|---|---|
+| `LOG` | VCP ST-Link V3 desky NUCLEO-H7A3ZI-Q (SN `002B00313434511934313937`, USB rozhraní 2) | `COM8` | `/dev/serial/by-id/usb-STMicroelectronics_STLINK-V3_002B00313434511934313937-if02` |
+| `COM1` | převodník FTDI USB–RS-485 (FT232R, SN `A100B73AA`) | `{serial: A100B73AA, interface: 0}` (`COM7`) | stejně |
+| `SWD` | týž ST-Link V3 (`adapter_serial`) | OpenOCD od ST z CubeIDE jako v `bench-stlink.yaml` | OpenOCD z distribuce |
 
-VCP ST-Link má výrobce STMicroelectronics a stejné sériové číslo jako `adapter_serial`. Na Windows se zapíše `COMx`, na Linuxu cesta `/dev/serial/by-id/usb-STMicroelectronics_STLINK-V3_…`. Potom:
+Sběrnice relé má svůj převodník. Porty jiného hardwaru ukáže `python -m serial.tools.list_ports -v`, na Linuxu `ls -l /dev/serial/by-id/`. Potom:
 
 ```
 .venv/Scripts/hil check --station stations/bench-serial.yaml --probe
 .venv/Scripts/hil info --station stations/bench-serial.yaml
 ```
 
-Ověření `LOG`: firmware v NUCLEO, který vypisuje na UART připojený k VCP (rychlost podle firmwaru, zde 115 200 Bd). Port se otevře, DUT se resetuje přes OpenOCD (VCP a SWD běží současně) a vypíše se první řádek výpisu. Na Windows je potřeba `command` a `search` z `bench-stlink.yaml`:
+Ověření `LOG`: firmware v NUCLEO, který vypisuje na UART připojený k VCP (rychlost podle firmwaru, zde 115 200 Bd). Port se otevře, DUT se resetuje přes OpenOCD (VCP a SWD běží současně) a vypíše se první řádek výpisu:
 
 ```
 .venv/Scripts/python -c "from hil.station import Station; from hil.config.models import SerialParams; s = Station.from_files('stations/bench-serial.yaml'); s.__enter__(); log = s.comm.serial('LOG'); log.configure('LOG', SerialParams(baud=115200)); log.open(); s.debug.reset('SWD', 'target/stm32h7x.cfg'); print(log.read_until(b'\n', timeout=3)); s.__exit__(None, None, None)"
@@ -164,7 +166,7 @@ Ověření `LOG`: firmware v NUCLEO, který vypisuje na UART připojený k VCP (
 
 Ověření `COM1` bez DUT: převodník `COM1` se dočasně připojí na sběrnici relé místo jejího převodníku a přečte Quido (adresa 49, společné nastavení sběrnice), jako v kroku 1 u Quido s portem převodníku `COM1`. Odpověď potvrdí zapojení A/B a automatické řízení směru převodníku.
 
-### b) Modul FT4232H
+### 5b. Modul FT4232H
 
 Latency timer všech portů (`test_ftdi_latency_timer`, jen Linux) a záchyt rámců `COM1` na `MON1` při 921 600 Bd (`test_rs485_monitor_sees_active_port`, viz [HW testy](hw-testy.md)). Čeká na modul.
 
@@ -339,6 +341,7 @@ První běh ověří oba generátory přes výstupní multiplexer, každý na ji
 | Quido RS 2/32, krok 3 | 6. 10. 2026 | prošlo | po vypnutí a zapnutí modulu jsou všechny coily vypnuté, žádná LED relé nesvítí. |
 | Quido RS 2/32, krok 4 | 6. 10. 2026 | prošlo | `test_relay_coil_map` prošel (3,6 s). Po sepnutí coilů 0, 1, 15 a 31 svítí LED výstupů 1, 2, 16 a 32, mapa odpovídá `coil_base: 0`. Zápis více coilů funkcí 0x0F funguje. |
 | Quido RS 2/32, krok 5 | 7. 10. 2026 | prošlo | smyčka relé 12 → IN1 a relé 13 → IN2 (dočasné svorky na coily 11 a 12). Mapa vstupů sedí (IN1 = vstup 0, IN2 = vstup 1, `input_base: 0`). Při 19 200 Bd a latency timeru FTDI 16 ms: čtení 30 ms, zpoždění až 64 ms (neprošlo). S latency timerem 1 ms: čtení 16,9 ms, zpoždění 32 až 51 ms (na hraně). Po zrychlení sběrnice na 115 200 Bd (registr 2 = 10): čtení 5,5 ms, zápis 3,5 ms, zpoždění 29 až 42 ms (medián 35 ms, 80 měření), test prošel třikrát. Při rozepnutí relé je zpoždění někdy jen 5 ms, při sepnutí vždy přes 29 ms. Vstupy jsou ve variantě 7 až 28 V (údaj uživatele). |
+| Sériové porty, 5a (Windows) | 8. 10. 2026 | částečně | `hil check --probe` s `bench-serial.yaml` otevře VCP (`COM8`), převodník RS-485 podle sériového čísla FTDI (`COM7`) i ST-Link. Reset přes `SWD` s `adapter_serial` 2,3 s. Firmware v NUCLEO na VCP nic nevypisuje, výpis `LOG` zatím neověřený. Komunikace přes `COM1` se zkouškou s Quido neověřovala, převodník se podle uživatele bere jako funkční. Linuxová varianta `bench-serial-linux.yaml` neověřená. |
 | ST-Link a OpenOCD | 6. 10. 2026 | prošlo | NUCLEO-H7A3ZI-Q, OpenOCD od ST z CubeIDE 1.12. Reset přes `hil` 1,9 s, `test_flash_with_openocd` s lokálním `examples/AmplifFilter-App.hex` 5,0 s (program, verify, reset). Nutné `interface/stlink-dap.cfg` a `reset_config srst_only srst_nogate`, bez nich selže připojení nebo `reset init`. Na Linuxu s OpenOCD z distribuce viz bod 9. |
 | Analog Discovery 3, krok 1 | 7. 10. 2026 | prošlo | `DwfLibrary().devices()` najde `Analog Discovery 3`, SN `210415BB5F29`, WaveForms s runtime Adept nainstalovaný. |
 | Analog Discovery 3, krok 2 | 7. 10. 2026 | prošlo | `hil check --probe` otevře AD3, `hil info` ukazuje X2.1 až X2.6, X3.1 až X3.6, AO.0, AO.1, AI.1 a AI.3 zapojené. |

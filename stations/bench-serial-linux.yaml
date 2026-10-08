@@ -1,0 +1,24 @@
+# Bench station on Linux: serial ports without the FT4232H module (bring-up,
+# doc/software/oziveni.md, step 5a). Same hardware as bench-serial.yaml (Windows):
+# LOG is the VCP of the ST-Link V3 (USB interface 2), COM1 an FTDI USB to RS-485
+# converter (FT232R) found by its serial number. OpenOCD and its scripts come from the
+# distribution. Check the VCP path with  ls -l /dev/serial/by-id/
+name: bench-serial-linux
+labels: [bench]
+profile: standard-v1
+devices:
+  vcp:
+    driver: serial_ports
+    ports:
+      log: /dev/serial/by-id/usb-STMicroelectronics_STLINK-V3_002B00313434511934313937-if02
+  dut485:
+    driver: serial_ports
+    ports:
+      a: {serial: A100B73AA, interface: 0}
+  stlink:
+    driver: openocd
+    adapter_serial: 002B00313434511934313937
+terminals:
+  LOG: {kind: serial, port: vcp.log}
+  COM1: {kind: rs485, port: dut485.a}
+  SWD: {kind: debug, probe: stlink}
