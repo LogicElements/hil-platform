@@ -146,7 +146,7 @@ class SerialPorts(Device):
         }
         if self.config.low_latency and sys.platform == "win32":
             log.info(
-                "%s: the FTDI latency timer cannot be checked on Windows; set it to 1 ms "
+                "%s: latency timers cannot be checked on Windows; set the FTDI ports to 1 ms "
                 "in Device Manager",
                 self.name,
             )

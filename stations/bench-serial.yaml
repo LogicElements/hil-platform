@@ -1,0 +1,25 @@
+# Bench station: serial ports without the FT4232H module (bring-up, doc/software/oziveni.md).
+# LOG is the VCP of the ST-Link V3 on a NUCLEO-H7A3ZI-Q, COM1 a second USB to RS-485
+# converter. The relay bus keeps its own converter. Ports marked REPLACE are placeholders;
+# list the ports with
+#   python -m serial.tools.list_ports -v
+# and use COMx on Windows or /dev/serial/by-id/... on Linux.
+name: bench-serial
+labels: [bench]
+profile: standard-v1
+devices:
+  vcp:
+    driver: serial_ports
+    ports:
+      log: COM-REPLACE
+  dut485:
+    driver: serial_ports
+    ports:
+      a: COM-REPLACE
+  stlink:
+    driver: openocd
+    adapter_serial: 002600393532510B31333430
+terminals:
+  LOG: {kind: serial, port: vcp.log}
+  COM1: {kind: rs485, port: dut485.a}
+  SWD: {kind: debug, probe: stlink}

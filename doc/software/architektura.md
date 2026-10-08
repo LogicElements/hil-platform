@@ -16,7 +16,7 @@ Uživatelská dokumentace: [konfigurace](konfigurace.md), [psaní a spouštění
 **Platformy:** Python 3.12 a vyšší. Linux (Debian, Raspberry Pi OS) je cíl pro provoz stanoviště. Windows je podporovaný pro vývoj balíčku a ověřování ovladačů na skutečných zařízeních.
 
 **Co balíček umí:**
-- ovladače: Modbus RTU sběrnice, Waveshare Modbus RTU Relay 32-ch, Papouch Quido RS 2/32, obecný Modbus modul digitálních vstupů, Digilent Analog Discovery 3, sériové porty (FT4232H, USB–RS-485), OpenOCD (ST-Link),
+- ovladače: Modbus RTU sběrnice, Waveshare Modbus RTU Relay 32-ch, Papouch Quido RS 2/32, obecný Modbus modul digitálních vstupů, Digilent Analog Discovery 3, sériové porty (libovolný port: kanál FT4232H, převodník USB–RS-485 nebo USB–UART, VCP ST-Link V3), OpenOCD (ST-Link),
 - simulované ovladače pro všechna uvedená zařízení a vestavěné stanoviště `sim`,
 - konfigurace: profil konektoru, stanoviště, zapojení DUT, validace,
 - HAL bloky a signály DUT,
@@ -108,7 +108,7 @@ Volby a kanály ovladačů jsou v [konfigurace.md](konfigurace.md#stanoviště).
 | `quido_rs_2_32` | 32 coilů a 2 vstupy (výchozí coily 0 až 31, vstupy jako discrete inputs 0 a 1), modul musí být přepnutý z protokolu Spinel do Modbus RTU. Mapa není ověřena na hardwaru, upravuje se volbami jako u Waveshare |
 | `modbus_di` | obecné čtení vstupů: zdroj (discrete inputs, nebo input registry po 16 vstupech od nejnižšího bitu), adresa prvního vstupu, počet, inverze. Všechny vstupy se čtou jedním požadavkem |
 | `analog_discovery_3` | vazba `ctypes` (`drivers/dwf.py`) na `libdwf.so` (Linux) nebo `dwf.dll` (Windows), knihovna se načte až v `open()`. Jeden handle pro 2 kanály AWG, 2 kanály scope a 16 linek DIO, scope ±25 V. Viz kap. 4.4 |
-| `serial_ports` | pyserial. Na Linuxu nastaví u FTDI latency timer na 1 ms přes sysfs. Na Windows se hodnota nekontroluje, jen se upozorní v logu |
+| `serial_ports` | pyserial. Kanál je cesta k zařízení (`/dev/serial/by-id/…`, `COM7`), URL pyserialu nebo sériové číslo čipu FTDI s číslem rozhraní. Jedno zařízení `serial_ports` může sdružovat porty různých převodníků a stanoviště jich může mít víc. Na Linuxu nastaví u portů FTDI latency timer na 1 ms přes sysfs, ostatní porty (např. `cdc_acm` u VCP ST-Link) přeskočí. Na Windows se hodnota nekontroluje, jen se upozorní v logu |
 | `openocd` | spouští `openocd` / `openocd.exe` (PATH nebo cesta v konfiguraci) s timeoutem, výstup ukládá do záznamů. Používá `adapter serial` a `adapter speed`, potřebuje OpenOCD 0.12 nebo novější (viz [nasazeni.md](nasazeni.md)). Chybějící program je `DeviceNotFound` |
 
 ### 4.4 Analog Discovery 3

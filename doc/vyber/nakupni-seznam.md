@@ -14,11 +14,13 @@ Podklad: [doporuceni.md](doporuceni.md), [hil-specifikace.md](../hil-specifikace
 | 4 | Mean Well HDR-30-24 (24 V, 1,5 A, DIN lišta) | 3 | 15–37 | [DigiKey](https://www.digikey.com/en/products/detail/mean-well-usa-inc/HDR-30-24/7703799) | 2× pro ±24 V DUT v sérii (společný střed), 1× pro napájení relé modulů |
 | 5 | Waveshare Modbus RTU Relay 32-ch | 4 (odhad) | neověřeno | [Waveshare](https://www.waveshare.com/modbus-rtu-relay-32ch.htm) | multiplexer, spínání napájení a stimulace, viz kap. 2. Alternativa: [Papouch Quido RS 2/32](https://papouch.com/quido-rs-2-32-2-vstupy-32-vystupu-a-teplomer-p4662/?vid=1846), 5 280 Kč bez DPH, 32 přepínacích relé + 2 izolované vstupy, do 230,4 kBd, nutné přepnout z Spinelu na Modbus RTU, varistor 0,64 nF na výstupu |
 | 6 | Modul s digitálními vstupy pro čtení 8 výstupů DUT (suché kontakty) a LED | 1 | neověřeno | [Advantech USB-4761](https://www.advantech.com/en-us/products/1-2MLKNO/USB-4761/mod_c1e301ab-cdc8-45c0-b610-6aea44b544ae) | alternativa k ověření: [Waveshare Modbus RTU Relay (D)](https://www.waveshare.com/modbus-rtu-relay-d.htm) s digitálním vstupem, zda umí číst suché kontakty, jsem neověřil |
-| 7 | Modul s FT4232H (4× UART) pro RS-485 a UART | 1 | 26,99 | [Waveshare Industrial USB To 4-Ch Serial Converter](https://www.waveshare.com/usb-to-4ch-serial-converter.htm) | FT4232HL, port A TTL, B TTL/RS-485, C izolovaný RS-485/422, D izolovaný RS-232/485, automatické řízení směru. RS-485 do 921 600 baud, což zadavatel potvrdil jako dostatečné. Využití portů: C aktivní RS-485, D pasivní záchyt, A konzole, B UART log (TTL) |
-| 8 | USB převodník na RS-485, izolovaný | 1 | neověřeno | [innomaker](https://www.amazon.com/Industrial-Converter-Adapter-Protection-Support/dp/B0B2QSW67D) (příklad) | pátý port pro sběrnici relé modulů (zadavatel) |
-| 9 | ST-Link V2 nebo V3 | 1 | cca 10–40 (V2) | [přehled](https://microcontrollerslab.com/best-jtag-swd-debuggers-embedded-firmware-developers-buying-guide/) | JTAG/SWD a flashování, V3 cena neověřena |
+| 7 | Modul s FT4232H (4× UART) pro RS-485 a UART | 1 (volitelně) | 26,99 | [Waveshare Industrial USB To 4-Ch Serial Converter](https://www.waveshare.com/usb-to-4ch-serial-converter.htm) | FT4232HL, port A TTL, B TTL/RS-485, C izolovaný RS-485/422, D izolovaný RS-232/485, automatické řízení směru. RS-485 do 921 600 baud, což zadavatel potvrdil jako dostatečné. Využití portů: C aktivní RS-485, D pasivní záchyt, A konzole, B UART log (TTL). Pro rychlý start ho lze vynechat, viz poznámka k sériovým portům |
+| 8 | USB převodník na RS-485, izolovaný | 1 (2 bez položky 7) | neověřeno | [innomaker](https://www.amazon.com/Industrial-Converter-Adapter-Protection-Support/dp/B0B2QSW67D) (příklad) | samostatný port pro sběrnici relé modulů (zadavatel). Bez modulu FT4232H druhý kus pro aktivní RS-485 s DUT (`COM1`) |
+| 9 | ST-Link V2 nebo V3 | 1 | cca 10–40 (V2) | [přehled](https://microcontrollerslab.com/best-jtag-swd-debuggers-embedded-firmware-developers-buying-guide/) | JTAG/SWD a flashování, V3 cena neověřena. VCP ST-Link V3 poslouží jako UART log nebo konzole |
 | 10 | Napájený USB hub | 1 (podle PC) | neověřeno | | pokud PC nemá dost USB portů |
 | 11 | Pojistky (jedna v každé větvi napájení), DIN lišta, svorky, kabeláž | podle zapojení | neověřeno | | zdroje HDR nemají omezení proudu stejně jako laboratorní zdroje |
+
+**Poznámka k sériovým portům:** porty k DUT nemusí být na jednom modulu FT4232H, požadavky na jednotlivé porty jsou v [doporuceni.md](doporuceni.md#sériové-porty). Rychlý start bez položky 7: UART log nebo konzole přes VCP ST-Link V3 (nebo převodník FTDI USB–UART TTL), aktivní RS-485 přes druhý kus položky 8. Pasivní záchyt RS-485 (`MON1`) potřebuje čip FTDI, do pořízení modulu FT4232H se nezapojí.
 
 **Poznámka k RS-485:** poruchy sběrnice RS-485 A/B se zatím řeší relé z modulů Waveshare (zadavatel). Pokud měření ukáže problém při 921 600 baud, lze později přidat photoMOS Panasonic AQY221N3V na malé desce.
 
@@ -61,4 +63,4 @@ Do rozpočtu 2 000 USD zbývá cca 1 130 až 1 280 USD na položky 3, 5, 6, 8, 1
 
 1. Nejdřív PC, Analog Discovery 3, ST-Link a jeden 32kanálový relé modul. Ověřit, že WaveForms SDK a pytest fungují na PC a že relé modul jde ovládat z Pythonu.
 2. Potom zdroje HDR a zbývající relé moduly po upřesnění počtu spínaných cest (PR-01).
-3. Nakonec FT4232H, převodníky RS-485 a vstupní modul podle potřeb prvních testů.
+3. Nakonec FT4232H, převodníky RS-485 a vstupní modul podle potřeb prvních testů. První testy komunikace s DUT lze spustit bez FT4232H (VCP ST-Link V3 a druhý převodník RS-485).

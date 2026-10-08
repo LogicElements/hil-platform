@@ -14,7 +14,7 @@ Volba `-s` ukáže naměřené hodnoty (zpoždění, perioda čtení, délka vý
 | `test_relay_coil_map` | `HIL_HW_NO_DUT=1`, odpojený DUT | mapu coilů: každé relé se sepne samo a přečte zpět |
 | `test_loopback_latency_and_polling_period` | `HIL_HW_LOOPBACK=X1.1:X2.1,...` a propojky mezi svorkami | zpoždění `switch` → `sense` pod 50 ms, průměrnou periodu čtení vstupu |
 | `test_outage_accuracy` | `HIL_HW_SUPPLY_SENSE=X2.8` a vstup zapojený na napájení DUT | délku `outage(0.1)`, odchylka pod 10 ms plus perioda čtení vstupu (vstup se čte po sběrnici relé) |
-| `test_ftdi_latency_timer` | Linux | latency timer všech portů `serial_ports` je 1 ms |
+| `test_ftdi_latency_timer` | Linux | latency timer všech portů FTDI v zařízeních `serial_ports` je 1 ms, ostatní porty přeskočí |
 | `test_rs485_monitor_sees_active_port` | `HIL_HW_RS485_LOOP=1`, `COM1` a `MON1` na jednom páru | záchyt rámce při 921 600 Bd s paritou E |
 | `test_flash_with_openocd` | `HIL_HW_TARGET`, `HIL_HW_IMAGE`, připojený DUT | flashování a reset přes ST-Link |
 | `test_ad3_generator_loopback` | `HIL_HW_AD3_LOOP=1`, propojky W1→1+ a W2→2+, 1− a 2− na zem, DUT odpojený od `AO.0` | DC 2 V a sinus 1 kHz z obou generátorů změřené scope téhož AD3, dlouhý záznam (200 000 vzorků) v režimu record |

@@ -13,10 +13,10 @@ Výsledek výběru platformy pro [specifikaci](../hil-specifikace.md). Co koupit
 | Napájení DUT | 2× Mean Well HDR-30-24 (24 V/1,5 A, DIN lišta) v sérii, společný střed = ±24 V | Pevné napětí, bez řízení. Výstupy jsou izolované (500 V). Spínání relé z modulů Waveshare, spínat oba póly, pojistka v každé větvi |
 | Relé (spínání napájení, stimul vstupů, poruchy, multiplexer) | Waveshare Modbus RTU Relay moduly (32-ch, nebistabilní), řetězené na jedné sběrnici RS-485 | Relé 1NO + 1NC, 10 A/30 V DC, adresa 1–255, rychlost až 256 000 baud. **Nepoužít bistabilní verzi.** Do budoucna možná Modbus TCP po Ethernetu |
 | Relé, alternativa | [Papouch Quido RS 2/32](https://papouch.com/quido-rs-2-32-2-vstupy-32-vystupu-a-teplomer-p4662/?vid=1846) (32 přepínacích relé, 2 izolované vstupy 7–28 V, RS-485/RS-232, Modbus RTU, napájení 8–30 V, 5 280 Kč bez DPH) | Kontakty 60 V AC/85 V DC, 5 A (lépe doložené stejnosměrné zatížení než Waveshare). RS-485 300 baud až 230,4 kBd (výchozí 9,6 kBd), prodleva odpovědi min. 2 ms. Na každém výstupu varistor (kapacita 0,64 nF), na pomalé kanály nevadí, u rychlých kanálů a RS-485 může být znát. Výchozí protokol je Spinel, do Modbus RTU se přepíná programem Modbus Configurator nebo propojkami. Mapování coilů 0 až 31 je v samostatné dokumentaci Modbusu, neověřeno. Lze kombinovat s moduly Waveshare na stejné sběrnici |
-| Sběrnice relé | USB převodník na RS-485 (izolovaný) | pátý port vedle čtyř portů FT4232H |
-| Komunikace | modul s FT4232H (4 porty). Kandidát: [Waveshare Industrial USB To 4-Ch Serial Converter](https://www.waveshare.com/usb-to-4ch-serial-converter.htm) (FT4232HL, 26,99 USD) | aktivní RS-485/Modbus RTU, pasivní záchyt, UART log, konzole. Waveshare modul: port A jen TTL, port B TTL/RS-485, porty C a D izolované RS-485/422 (D také RS-232), automatické řízení směru, RS-485 a RS-232 do 921 600 baud (zadavatel potvrdil, že RS-485 tuto rychlost nepřekročí), TTL až 12 Mbaud |
+| Sběrnice relé | USB převodník na RS-485 (izolovaný) | samostatný port, nesdílí se s komunikací DUT |
+| Komunikace | libovolné sériové porty (viz [Sériové porty](#sériové-porty)). Plné osazení: modul s FT4232H (4 porty), kandidát: [Waveshare Industrial USB To 4-Ch Serial Converter](https://www.waveshare.com/usb-to-4ch-serial-converter.htm) (FT4232HL, 26,99 USD) | aktivní RS-485/Modbus RTU, pasivní záchyt, UART log, konzole. Waveshare modul: port A jen TTL, port B TTL/RS-485, porty C a D izolované RS-485/422 (D také RS-232), automatické řízení směru, RS-485 a RS-232 do 921 600 baud (zadavatel potvrdil, že RS-485 tuto rychlost nepřekročí), TTL až 12 Mbaud |
 | Čtení výstupů DUT a LED | modul s digitálními vstupy (např. Advantech USB-4761) | 8 suchých kontaktů a snímání LED |
-| Ladění | ST-Link V2 nebo V3 | JTAG/SWD a flashování přes OpenOCD nebo STM32CubeProgrammer |
+| Ladění | ST-Link V2 nebo V3 | JTAG/SWD a flashování přes OpenOCD nebo STM32CubeProgrammer. V3 má navíc VCP (UART TTL), použitelný jako `LOG` nebo `CON` |
 
 ## Zapojení
 
@@ -25,7 +25,7 @@ Výsledek výběru platformy pro [specifikaci](../hil-specifikace.md). Co koupit
   │ USB
   ├─ Analog Discovery 3 ── generátor 1, 2 ──► relé multiplexer ──► vstupy DUT
   │                         měření (2 kanály) ◄── relé multiplexer ◄── výstupy DUT (±24 V)
-  ├─ FT4232H ── RS-485 aktivní, RS-485 pasivní záchyt, UART log, konzole
+  ├─ sériové porty (FT4232H, nebo VCP ST-Link V3 a USB–RS-485) ── RS-485 aktivní, RS-485 pasivní záchyt, UART log, konzole
   ├─ USB–RS-485 ── sběrnice relé modulů Waveshare (adresy 1–255)
   ├─ (DIO Analog Discovery 3) ── 8 výstupů DUT (suché kontakty s pull-upem, logika 3,3 V), 6 logických vstupů DUT
   └─ ST-Link ── JTAG/SWD DUT
@@ -43,9 +43,27 @@ Digitální výstupy DUT čte a logické vstupy DUT budí 16 linek DIO Analog Di
 - Jeden rychlý kanál (1 MHz) zapojit napřímo bez relé, protože šířka pásma relé není dokumentována.
 - Měření výstupů DUT (±24 V): 4 vstupy na 2 kanály Analog Discovery 3, několik relé z týchž modulů.
 
+### Sériové porty
+
+Stanoviště potřebuje čtyři sériové porty k DUT. Požadavky jsou na port, ne na konkrétní převodník:
+
+| Svorka | Účel | Požadavek na port |
+|---|---|---|
+| `CON` | konzole DUT | UART TTL 3,3 V |
+| `LOG` | UART log DUT | UART TTL 3,3 V |
+| `COM1` | aktivní RS-485, Modbus RTU s DUT | RS-485 s automatickým řízením směru (software RTS neovládá), do 921 600 Bd |
+| `MON1` | pasivní záchyt RS-485 | RS-485 na stejném páru jako `COM1`, čip FTDI (latency timer 1 ms) |
+
+Každý port může být na jiném převodníku. Plné osazení je jeden modul s FT4232H (port A konzole, B log, C aktivní RS-485, D pasivní záchyt). Pro rychlý start bez něj stačí:
+
+- VCP vestavěný v ST-Link V3 (nebo jiný převodník USB–UART TTL, např. FTDI FT232R/FT232H) jako `LOG` nebo `CON`. ST-Link V3 je zároveň ladicí sonda, VCP a SWD běží současně. Na deskách NUCLEO je VCP propojený s UARTem cílového MCU, k vlastnímu DUT se připojí vodiči z konektoru ST-Link V3.
+- Druhý USB převodník na RS-485 (stejný typ jako u sběrnice relé) jako `COM1`. Sběrnice relé a komunikace s DUT musí být na oddělených portech (jiný master a jiné parametry linky).
+
+Svorky, které stanoviště nezapojí (např. `MON1`), test nesmí používat, profil zapojení všech svorek nevyžaduje. Pasivní záchyt při 921 600 Bd spoléhá na latency timer 1 ms. U převodníků jiných než FTDI (CH340, CP210x, VCP ST-Link) se nastavit nedá a záchyt může slučovat rámce, proto zůstává `MON1` na čipu FTDI.
+
 ## Rozpočet
 
-Součet známých cen (PC, Analog Discovery 3, 3× HDR-30-24, modul FT4232H, ST-Link) je asi 720 až 870 USD. Zbývá asi 1 130 až 1 280 USD na relé moduly, vstupní modul, převodník RS-485, USB hub a pojistky. Zda se vše vejde, nebylo ověřeno.
+Součet známých cen (PC, Analog Discovery 3, 3× HDR-30-24, modul FT4232H, ST-Link) je asi 720 až 870 USD. Bez modulu FT4232H (rychlý start, viz [Sériové porty](#sériové-porty)) je to o 27 USD méně, přibude ale druhý převodník RS-485. Zbývá asi 1 130 až 1 280 USD na relé moduly, vstupní modul, převodník RS-485, USB hub a pojistky. Zda se vše vejde, nebylo ověřeno.
 
 ## Co ověřit při stavbě
 

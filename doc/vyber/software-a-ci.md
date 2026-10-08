@@ -9,7 +9,7 @@ Jak sestavu z [doporuceni.md](doporuceni.md) ovládat z testů a CI. Požadavky:
 | Zařízení | Přístup z Pythonu | Poznámka |
 |---|---|---|
 | Digilent Analog Discovery 3 | WaveForms SDK s podporou Pythonu | Windows, macOS, Linux včetně Raspberry Pi (ARM64, viz [návod Digilentu](https://digilent.com/reference/test-and-measurement/guides/getting-started-with-raspberry-pi)) |
-| Převodníky FT4232H a USB–RS-485 | pyserial, případně pyftdi | latenci čtení lze nastavit (pro pasivní záchyt nízkou) |
+| Sériové porty (FT4232H, USB–RS-485, VCP ST-Link V3, jiné převodníky) | pyserial, případně pyftdi | latenci čtení lze nastavit (pro pasivní záchyt nízkou) |
 | Relé moduly Waveshare (Modbus RTU) | pymodbus | adresy 1–255, rychlost až 256 000 baud |
 | RS-485 simulace master a slave, injektor chybných rámců | pymodbus a vlastní kód nad sériovým portem | |
 | ST-Link V2/V3 | OpenOCD nebo STM32CubeProgrammer, volání jako subprocess | |
@@ -24,7 +24,7 @@ Test nesmí používat konkrétní přístroj, jen blok. Každý blok je třída
 | `PowerBlock` | `on()`, `off()`, `outage(duration_s)`, `emergency_off()` | relé v cestě pevného napájení ±24 V | HW-PWR-01 až 03 |
 | `DigitalBlock` | `set_input(ch, state)`, `read_output(ch)`, `press_button(ch)`, `read_led(ch)` | relé moduly pro vstupy, vstupní modul pro výstupy | HW-DIG-01 až 04 |
 | `FaultMatrix` | `open(path)`, `short_to_gnd(path)`, `restore(path)`, `restore_all()` | relé v cestách mezi komponentami | HW-FLT-01, 02, 04 |
-| `CommBlock` | `serial(name)` (UART), `rs485_master(name)`, `rs485_monitor(name)`, `inject(name, frame)` | FT4232H a pymodbus | HW-COM-01 až 06 |
+| `CommBlock` | `serial(name)` (UART), `rs485_master(name)`, `rs485_monitor(name)`, `inject(name, frame)` | sériové porty (FT4232H nebo jiné převodníky) a pymodbus | HW-COM-01 až 06 |
 | `DebugBlock` | `flash(image)`, `reset()`, `console()` | ST-Link přes OpenOCD, konzole přes UART | HW-DBG-01 až 03 |
 | `AnalogBlock` | `generate(ch, wave, freq, amp)`, `disconnect(ch)`, `measure(ch) -> (dc, rms)` | Analog Discovery 3 a relé multiplexer | HW-ANA-01 až 03, 05 až 07 |
 

@@ -8,7 +8,7 @@ name: lab-a
 labels: [hil, lab-a]
 profile: standard-v1
 devices:
-  # isolated USB to RS-485 converter, the fifth serial port next to the FT4232H
+  # isolated USB to RS-485 converter of its own, not shared with the DUT ports
   relay_bus:
     driver: modbus_rtu_bus
     port: /dev/serial/by-id/usb-FTDI_USB-RS485-REPLACE-if00-port0
@@ -16,7 +16,9 @@ devices:
     parity: E
   rel1: {driver: waveshare_relay32, bus: relay_bus, address: 1}
   rel2: {driver: waveshare_relay32, bus: relay_bus, address: 2}
-  # Waveshare USB to 4-Ch Serial Converter: A TTL, B TTL or RS-485, C and D isolated RS-485
+  # Waveshare USB to 4-Ch Serial Converter: A TTL, B TTL or RS-485, C and D isolated RS-485.
+  # Any serial port works as well, e.g. the ST-Link V3 VCP for LOG and a second USB to
+  # RS-485 converter for COM1 (stations/bench-serial.yaml); MON1 needs an FTDI chip.
   ft:
     driver: serial_ports
     ports:
