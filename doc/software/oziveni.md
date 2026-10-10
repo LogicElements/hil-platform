@@ -28,7 +28,7 @@ Zařízení si nastaví uživatel sám podle dokumentace výrobce, balíček je 
 | 2 | Waveshare Modbus RTU Relay 32-ch | mapa coilů, stav po zapnutí, sdílená sběrnice s Quido | odloženo, není k dispozici |
 | 3 | modul digitálních vstupů (`modbus_di`) | nahrazeno linkami DIO Analog Discovery 3 (bod 6), Modbus modul je budoucí alternativa pro jiné úrovně než 3,3 V | odloženo |
 | 4 | napájení přes zdroj HDR | `outage()`, odchylka pod 10 ms | čeká |
-| 5 | sériové porty | a) rychlý start bez FT4232H: VCP ST-Link V3 jako `LOG`, druhý převodník USB–RS-485 jako `COM1` (`bench-serial`); b) FT4232H: latency timer, monitor RS-485 na 921 600 Bd | a) částečně, b) čeká |
+| 5 | sériové porty | a) rychlý start bez FT4232H: VCP ST-Link V3 jako `LOG`, druhý převodník USB–RS-485 jako `COM1` (`bench-serial`); b) FT4232H: latency timer, monitor RS-485 na 921 600 Bd | a) hotovo (Windows), b) čeká |
 | 6 | Analog Discovery 3 | funkce WaveForms SDK, smyčka generátor → scope, DIO: smyčka logic_out → sense (`test_ad3_dio_loopback`) | hotovo |
 | 7 | ST-Link a OpenOCD | flashování a reset DUT | hotovo |
 | 8 | analogový multiplexer | oba generátory přes relé, měřicí multiplexer (dočasně na relé Quido, `bench-mux`) | připraveno, čeká na zapojení |
@@ -147,7 +147,7 @@ Stanoviště `stations/bench-serial.yaml` (Windows) a `stations/bench-serial-lin
 
 | Svorka | Port | Windows | Linux |
 |---|---|---|---|
-| `LOG` | VCP ST-Link V3 desky NUCLEO-H7A3ZI-Q (SN `002B00313434511934313937`, USB rozhraní 2) | `COM8` | `/dev/serial/by-id/usb-STMicroelectronics_STLINK-V3_002B00313434511934313937-if02` |
+| `LOG` | VCP ST-Link V3 desky NUCLEO-H7A3ZI-Q (SN `002B00313434511934313937`, USB rozhraní 2) | `COM10` | `/dev/serial/by-id/usb-STMicroelectronics_STLINK-V3_002B00313434511934313937-if02` |
 | `COM1` | převodník FTDI USB–RS-485 (FT232R, SN `A100B73AA`) | `{serial: A100B73AA, interface: 0}` (`COM7`) | stejně |
 | `SWD` | týž ST-Link V3 (`adapter_serial`) | OpenOCD od ST z CubeIDE jako v `bench-stlink.yaml` | OpenOCD z distribuce |
 
@@ -341,7 +341,7 @@ První běh ověří oba generátory přes výstupní multiplexer, každý na ji
 | Quido RS 2/32, krok 3 | 6. 10. 2026 | prošlo | po vypnutí a zapnutí modulu jsou všechny coily vypnuté, žádná LED relé nesvítí. |
 | Quido RS 2/32, krok 4 | 6. 10. 2026 | prošlo | `test_relay_coil_map` prošel (3,6 s). Po sepnutí coilů 0, 1, 15 a 31 svítí LED výstupů 1, 2, 16 a 32, mapa odpovídá `coil_base: 0`. Zápis více coilů funkcí 0x0F funguje. |
 | Quido RS 2/32, krok 5 | 7. 10. 2026 | prošlo | smyčka relé 12 → IN1 a relé 13 → IN2 (dočasné svorky na coily 11 a 12). Mapa vstupů sedí (IN1 = vstup 0, IN2 = vstup 1, `input_base: 0`). Při 19 200 Bd a latency timeru FTDI 16 ms: čtení 30 ms, zpoždění až 64 ms (neprošlo). S latency timerem 1 ms: čtení 16,9 ms, zpoždění 32 až 51 ms (na hraně). Po zrychlení sběrnice na 115 200 Bd (registr 2 = 10): čtení 5,5 ms, zápis 3,5 ms, zpoždění 29 až 42 ms (medián 35 ms, 80 měření), test prošel třikrát. Při rozepnutí relé je zpoždění někdy jen 5 ms, při sepnutí vždy přes 29 ms. Vstupy jsou ve variantě 7 až 28 V (údaj uživatele). |
-| Sériové porty, 5a (Windows) | 8. 10. 2026 | částečně | `hil check --probe` s `bench-serial.yaml` otevře VCP (`COM8`), převodník RS-485 podle sériového čísla FTDI (`COM7`) i ST-Link. Reset přes `SWD` s `adapter_serial` 2,3 s. Firmware v NUCLEO na VCP nic nevypisuje, výpis `LOG` zatím neověřený. Komunikace přes `COM1` se zkouškou s Quido neověřovala, převodník se podle uživatele bere jako funkční. Linuxová varianta `bench-serial-linux.yaml` neověřená. |
+| Sériové porty, 5a (Windows) | 10. 10. 2026 | prošlo | `bench-serial.yaml`: VCP ST-Link V3 je nyní `COM10` (Windows číslo přidělil jinak než 8. 10.), převodník RS-485 podle sériového čísla FTDI (`COM7`). `LOG` přes stanoviště na 115 200 Bd vypsal `Blink`, opakuje se přesně po 4,0 s (změřeno 1,5 / 5,5 / 9,5 / 13,5 s). `COM1` (`rs485`, 19 200 Bd 8E1) přečetl přes `modbus` DUT se slavem 32 (FC 03 a FC 04, platné CRC). DUT je záměrně na samostatném portu, mimo sběrnici modulů vstupů/výstupů (115 200 Bd), kvůli kolizi adres a rychlostí a zkouškám chyb komunikace. Linuxová varianta `bench-serial-linux.yaml` neověřená. |
 | ST-Link a OpenOCD | 6. 10. 2026 | prošlo | NUCLEO-H7A3ZI-Q, OpenOCD od ST z CubeIDE 1.12. Reset přes `hil` 1,9 s, `test_flash_with_openocd` s lokálním `examples/AmplifFilter-App.hex` 5,0 s (program, verify, reset). Nutné `interface/stlink-dap.cfg` a `reset_config srst_only srst_nogate`, bez nich selže připojení nebo `reset init`. Na Linuxu s OpenOCD z distribuce viz bod 9. |
 | Analog Discovery 3, krok 1 | 7. 10. 2026 | prošlo | `DwfLibrary().devices()` najde `Analog Discovery 3`, SN `210415BB5F29`, WaveForms s runtime Adept nainstalovaný. |
 | Analog Discovery 3, krok 2 | 7. 10. 2026 | prošlo | `hil check --probe` otevře AD3, `hil info` ukazuje X2.1 až X2.6, X3.1 až X3.6, AO.0, AO.1, AI.1 a AI.3 zapojené. |

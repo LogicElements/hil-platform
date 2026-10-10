@@ -1,6 +1,6 @@
 # Bench station on Windows: serial ports without the FT4232H module (bring-up,
 # doc/software/oziveni.md, step 5a). LOG is the VCP of the ST-Link V3 on a NUCLEO-H7A3ZI-Q
-# (COM8), COM1 an FTDI USB to RS-485 converter (FT232R, COM7), found by its serial number.
+# (COM10), COM1 an FTDI USB to RS-485 converter (FT232R, COM7), found by its serial number.
 # The relay bus keeps its own converter. OpenOCD is ST's build bundled with STM32CubeIDE 1.12,
 # as in bench-stlink.yaml. The Linux variant is bench-serial-linux.yaml.
 name: bench-serial
@@ -10,7 +10,7 @@ devices:
   vcp:
     driver: serial_ports
     ports:
-      log: COM8
+      log: COM10
   dut485:
     driver: serial_ports
     ports:
